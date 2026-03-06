@@ -549,6 +549,7 @@ function handleQRScan(value) {
   attendance[activeDay][s.id]='present'; save();
   frame.style.borderColor='var(--green)'; setTimeout(function(){frame.style.borderColor='var(--accent)';},1000);
   if (navigator.vibrate) navigator.vibrate([60,30,60]);
+  beep();
   document.getElementById('scan-result').style.display='block';
   document.getElementById('sr-name').textContent=s.name;
   document.getElementById('sr-id').textContent=s.student_id||'—';
@@ -669,6 +670,21 @@ function showFallback(jsonStr, filename) {
 }
 
 // ── UTILS ─────────────────────────────────────────────
+function beep() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1046, ctx.currentTime);       // high C note
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.18);
+  } catch(e) {}
+}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 var toastT;
 function toast(msg){var el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(function(){el.classList.remove('show');},2500);}
