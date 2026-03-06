@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<title>ARA Mobile</title>
+<style>
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --mono: "SF Mono", "Fira Code", Consolas, monospace;
+  --bg:     #0f172a; --surf:   #1e293b; --surf2:  #263347;
+  --border: #334155; --text:   #f1f5f9; --muted:  #94a3b8;
+  --accent: #3b82f6; --green:  #22c55e; --red:    #ef4444;
+  --amber:  #f59e0b; --r: 14px;
+}
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+body { font-family:var(--font); background:var(--bg); color:var(--text); min-height:100vh; overflow-x:hidden; -webkit-text-size-adjust:100%; }
+
+/* ── IMPORT ── */
+#import-screen { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; background:linear-gradient(160deg,#0f172a 0%,#1a1040 100%); }
+.logo-ring { width:90px; height:90px; border-radius:50%; background:linear-gradient(135deg,#3b82f6,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:20px; box-shadow:0 0 40px rgba(59,130,246,.35); }
+#import-screen h1 { font-size:22px; font-weight:700; text-align:center; margin-bottom:6px; }
+.sub { color:var(--muted); font-size:14px; text-align:center; margin-bottom:36px; }
+.import-card { width:100%; max-width:380px; background:var(--surf); border:1px solid var(--border); border-radius:var(--r); padding:28px 24px; }
+.import-card h3 { font-size:16px; font-weight:700; margin-bottom:6px; }
+.import-card p  { font-size:13px; color:var(--muted); line-height:1.6; margin-bottom:20px; }
+.file-label { display:block; width:100%; background:var(--accent); color:white; font-family:var(--font); font-size:16px; font-weight:600; padding:15px 20px; border-radius:10px; text-align:center; cursor:pointer; -webkit-appearance:none; user-select:none; transition:opacity .15s; }
+.file-label:active { opacity:.85; }
+#file-input { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; }
+.import-hint { font-size:12px; color:var(--muted); text-align:center; margin-top:12px; }
+#import-err { display:none; margin-top:14px; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.4); border-radius:10px; padding:14px; font-size:13px; color:#fca5a5; line-height:1.7; }
+
+/* ── APP ── */
+#app { display:none; flex-direction:column; min-height:100vh; }
+.topbar { background:var(--surf); padding:14px 16px 10px; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:100; }
+.topbar-row { display:flex; align-items:center; justify-content:space-between; }
+.topbar h2  { font-size:15px; font-weight:700; }
+.date-badge { background:var(--surf2); border:1px solid var(--border); border-radius:8px; padding:4px 10px; font-size:12px; color:var(--muted); font-family:var(--mono); }
+.meta { font-size:11px; color:var(--muted); margin-top:3px; }
+.tabbar { background:var(--surf); border-bottom:1px solid var(--border); display:flex; }
+.tab { flex:1; padding:11px 0; text-align:center; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; transition:all .15s; user-select:none; }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.tab-content { display:none; padding:0 0 90px; }
+.tab-content.active { display:block; }
+
+/* ── COUNTERS ── */
+.cards-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px 12px 0; }
+.mini-card { background:var(--surf); border:1px solid var(--border); border-radius:12px; padding:10px 8px; text-align:center; }
+.mini-card .val { font-size:22px; font-weight:700; line-height:1; }
+.mini-card .lbl { font-size:11px; color:var(--muted); margin-top:4px; }
+
+/* ── DAY BAR ── */
+.section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); padding:12px 12px 4px; }
+.day-bar { display:flex; align-items:center; gap:8px; padding:6px 12px 8px; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+.day-bar::-webkit-scrollbar { display:none; }
+.day-chip { flex-shrink:0; background:var(--surf); border:1px solid var(--border); border-radius:20px; padding:6px 14px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; font-family:var(--mono); }
+.day-chip.active  { background:var(--accent); border-color:var(--accent); color:white; }
+.day-chip.add-btn { border-style:dashed; color:var(--accent); border-color:var(--accent); }
+
+/* ── DATE MODAL ── */
+.modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:200; display:flex; align-items:flex-end; }
+.modal-sheet { background:var(--surf); border-radius:16px 16px 0 0; padding:24px 20px 48px; width:100%; }
+.modal-sheet h3 { font-size:17px; font-weight:700; margin-bottom:4px; }
+.modal-hint { font-size:13px; color:var(--muted); margin-bottom:16px; }
+.d-label { font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; }
+.d-input { width:100%; background:var(--surf2); border:2px solid var(--border); border-radius:10px; color:var(--text); font-family:var(--font); font-size:18px; font-weight:600; padding:14px 16px; -webkit-appearance:none; outline:none; letter-spacing:.5px; }
+.d-input:focus { border-color:var(--accent); }
+.d-preview { font-size:14px; color:var(--accent); font-weight:600; min-height:22px; margin:10px 0 18px; }
+.modal-btn-row { display:flex; gap:10px; }
+.modal-btn { flex:1; padding:14px; border-radius:10px; border:none; font-family:var(--font); font-size:15px; font-weight:700; cursor:pointer; -webkit-appearance:none; }
+.modal-btn.cancel  { background:var(--surf2); color:var(--text); border:1px solid var(--border); }
+.modal-btn.confirm { background:var(--accent); color:white; }
+.modal-btn.confirm:disabled { background:var(--border); color:var(--muted); }
+
+/* ── SEARCH ── */
+.search-wrap { padding:10px 12px 8px; }
+.search-input { width:100%; background:var(--surf); border:1px solid var(--border); border-radius:10px; color:var(--text); font-family:var(--font); font-size:16px; padding:11px 14px; outline:none; -webkit-appearance:none; }
+.search-input:focus { border-color:var(--accent); }
+.search-input::placeholder { color:var(--muted); }
+
+/* ── STUDENT CARDS ── */
+.student-list { padding:0 12px; }
+.student-card { background:var(--surf); border:1px solid var(--border); border-radius:12px; margin-bottom:8px; overflow:hidden; }
+.student-card.present { border-color:var(--green); }
+.student-card.absent  { border-color:var(--red); }
+.student-card.paid    { border-color:var(--green); }
+.sc-main { display:flex; align-items:center; padding:12px; gap:10px; cursor:pointer; }
+.sc-av { width:38px; height:38px; border-radius:50%; background:var(--surf2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:var(--accent); flex-shrink:0; }
+.sc-info { flex:1; min-width:0; }
+.sc-name { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sc-sub  { font-size:11px; color:var(--muted); margin-top:2px; }
+.sc-st   { font-size:11px; font-weight:700; padding:4px 9px; border-radius:20px; flex-shrink:0; }
+.sn { background:var(--surf2); color:var(--muted); }
+.sp { background:rgba(34,197,94,.15);  color:var(--green); }
+.sa { background:rgba(239,68,68,.15);  color:var(--red); }
+.sk { background:rgba(34,197,94,.15);  color:var(--green); }
+.sq { background:rgba(245,158,11,.15); color:var(--amber); }
+.sc-acts { display:none; padding:0 12px 12px; gap:8px; }
+.student-card.open .sc-acts { display:flex; }
+.act { flex:1; padding:11px 6px; border-radius:8px; border:none; font-family:var(--font); font-size:13px; font-weight:700; cursor:pointer; -webkit-appearance:none; }
+.act:active { opacity:.8; }
+.a-present { background:var(--green); color:white; }
+.a-absent  { background:var(--red);   color:white; }
+.a-paid    { background:var(--green); color:white; }
+.a-unpaid  { background:var(--amber); color:white; }
+.a-ghost   { background:var(--surf2); color:var(--muted); border:1px solid var(--border) !important; }
+
+/* ── SCAN ── */
+.scan-outer { background:var(--surf); border:1px solid var(--border); border-radius:var(--r); overflow:hidden; margin:12px; position:relative; }
+#scan-video  { width:100%; display:block; max-height:300px; object-fit:cover; background:#000; }
+.scan-ov     { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+#scan-frame  { width:170px; height:170px; border:3px solid var(--accent); border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,.5); transition:border-color .2s; }
+#scan-canvas { display:none; }
+.info-banner { background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--amber); line-height:1.6; margin:10px 12px 0; }
+
+/* ── EXPORT ── */
+.export-card { background:var(--surf); border:1px solid var(--border); border-radius:var(--r); padding:18px; margin:12px 12px 10px; }
+.export-card h3 { font-size:15px; font-weight:700; margin-bottom:5px; }
+.export-card p  { font-size:13px; color:var(--muted); margin-bottom:14px; line-height:1.5; }
+.summary-block  { background:var(--surf2); border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.9; margin-bottom:14px; }
+.btn-export { width:100%; background:linear-gradient(135deg,#059669,#16a34a); color:white; font-family:var(--font); font-size:16px; font-weight:700; padding:15px; border-radius:10px; border:none; cursor:pointer; -webkit-appearance:none; }
+.btn-export:active { opacity:.9; }
+.how-to { background:rgba(59,130,246,.08); border:1px solid rgba(59,130,246,.2); border-radius:10px; padding:14px; font-size:13px; color:var(--muted); line-height:1.7; margin:0 12px; }
+.how-to strong { color:var(--accent); }
+
+/* ── MISC ── */
+.no-day { text-align:center; padding:36px 24px; color:var(--muted); font-size:14px; line-height:1.6; }
+.no-day .big { font-size:38px; margin-bottom:12px; }
+.empty { text-align:center; padding:40px 24px; color:var(--muted); font-size:14px; }
+.empty .big { font-size:36px; margin-bottom:10px; }
+.toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:var(--surf); border:1px solid var(--border); color:var(--text); font-size:14px; font-weight:500; padding:10px 20px; border-radius:100px; box-shadow:0 8px 32px rgba(0,0,0,.5); z-index:999; opacity:0; transition:opacity .2s; white-space:nowrap; pointer-events:none; }
+.toast.show { opacity:1; }
+</style>
+</head>
+<body>
+
+<!-- IMPORT SCREEN -->
+<div id="import-screen">
+  <div class="logo-ring">🎯</div>
+  <h1>Air Rifle Academy</h1>
+  <p class="sub">D S Senanayeke College · Mobile Companion</p>
+  <div class="import-card">
+    <h3>Import Export File</h3>
+    <p>First export from your laptop:<br>
+       <strong style="color:var(--text)">Settings → 📤 Export for Mobile</strong><br>
+       Send the .json file to your phone, then tap below.</p>
+    <label class="file-label" for="file-input">📂 &nbsp; Choose Export File</label>
+    <input type="file" id="file-input" accept="*/*">
+    <p class="import-hint">ara_mobile_YYYY-MM-DD.json</p>
+    <div id="import-err"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-row">
+      <div><h2>🎯 Air Rifle Academy</h2><div class="meta" id="topbar-meta"></div></div>
+      <div class="date-badge" id="topbar-date"></div>
+    </div>
+  </div>
+  <div class="tabbar">
+    <div class="tab active" onclick="switchTab('attendance')">📋 Attend.</div>
+    <div class="tab"        onclick="switchTab('scan')">📷 Scan</div>
+    <div class="tab"        onclick="switchTab('payments')">💰 Pay</div>
+    <div class="tab"        onclick="switchTab('export')">📤 Export</div>
+  </div>
+
+  <!-- ATTENDANCE -->
+  <div class="tab-content active" id="tab-attendance">
+    <div class="cards-row">
+      <div class="mini-card"><div class="val" id="a-present" style="color:var(--green)">0</div><div class="lbl">Present</div></div>
+      <div class="mini-card"><div class="val" id="a-absent"  style="color:var(--red)">0</div><div class="lbl">Absent</div></div>
+      <div class="mini-card"><div class="val" id="a-unmarked" style="color:var(--amber)">0</div><div class="lbl">Unmarked</div></div>
+    </div>
+    <div class="section-label">Class Day</div>
+    <div class="day-bar" id="day-bar"></div>
+    <div id="no-day-msg" class="no-day"><div class="big">📅</div>Tap <b>+ New Day</b> above to start today's attendance</div>
+    <div id="att-body" style="display:none">
+      <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="att-q" oninput="renderAtt()"></div>
+      <div class="student-list" id="att-list"></div>
+    </div>
+  </div>
+
+  <!-- SCAN -->
+  <div class="tab-content" id="tab-scan">
+    <div style="padding:10px 12px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:13px;color:var(--muted)">Marking for:</span>
+      <span id="scan-day-lbl" style="background:var(--accent);color:white;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600"></span>
+      <button onclick="switchTab('attendance')" style="margin-left:auto;background:var(--surf2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font)">Change Day</button>
+    </div>
+    <div id="scan-no-day" style="display:none" class="no-day"><div class="big">📅</div>Go to <b>Attendance</b> tab and add a class day first.</div>
+    <div id="scan-body" style="display:none">
+      <div id="ios-scan-note" style="display:none" class="info-banner">📱 <b>iPhone note:</b> If camera doesn't work, use the <b>Attendance tab</b> to mark students manually.</div>
+      <div class="scan-outer">
+        <div id="scan-idle" style="padding:32px 20px;text-align:center">
+          <div style="font-size:44px;margin-bottom:10px">📷</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">QR Code Scanner</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.5">Point camera at student's QR card.<br>They are marked <b style="color:var(--green)">Present</b> instantly.</div>
+          <button id="start-btn" style="background:var(--accent);color:white;border:none;border-radius:10px;padding:13px 28px;font-family:var(--font);font-size:15px;font-weight:600;cursor:pointer;width:100%;-webkit-appearance:none" onclick="startScanner()">Start Camera</button>
+          <div id="scan-err" style="display:none;margin-top:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:12px;font-size:13px;color:var(--amber);line-height:1.6"></div>
+        </div>
+        <div id="scan-live" style="display:none;position:relative">
+          <video id="scan-video" autoplay playsinline muted style="width:100%;display:block;max-height:300px;object-fit:cover;background:#000"></video>
+          <div class="scan-ov"><div id="scan-frame"></div></div>
+          <canvas id="scan-canvas" style="display:none"></canvas>
+          <button onclick="stopScanner()" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,.65);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)">✕ Stop</button>
+        </div>
+      </div>
+      <div id="scan-result" style="display:none;margin:0 12px 10px;background:var(--surf);border:2px solid var(--green);border-radius:var(--r);padding:14px;text-align:center">
+        <div style="font-size:28px;margin-bottom:6px">✅</div>
+        <div id="sr-name" style="font-size:17px;font-weight:700"></div>
+        <div id="sr-id"   style="font-size:13px;color:var(--muted);margin-top:2px"></div>
+        <div style="font-size:13px;color:var(--green);font-weight:600;margin-top:6px">Marked Present</div>
+      </div>
+      <div id="scan-log-wrap" style="display:none;padding:0 12px">
+        <div class="section-label">Scanned this session</div>
+        <div id="scan-log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAYMENTS -->
+  <div class="tab-content" id="tab-payments">
+    <div class="cards-row">
+      <div class="mini-card"><div class="val" id="p-paid"    style="color:var(--green)">0</div><div class="lbl">Paid</div></div>
+      <div class="mini-card"><div class="val" id="p-pending" style="color:var(--amber)">0</div><div class="lbl">Pending</div></div>
+      <div class="mini-card"><div class="val" id="p-total"   style="color:var(--muted)">0</div><div class="lbl">Total</div></div>
+    </div>
+    <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q" oninput="renderPay()"></div>
+    <div class="student-list" id="pay-list"></div>
+  </div>
+
+  <!-- EXPORT -->
+  <div class="tab-content" id="tab-export">
+    <div class="export-card">
+      <h3>📤 Export Sync File</h3>
+      <p>Export all changes and send back to the laptop to update the database.</p>
+      <div class="summary-block" id="export-summary">Loading…</div>
+      <button class="btn-export" onclick="exportSync()">⬇ Download Sync File</button>
+    </div>
+    <div class="how-to">
+      <strong>How to sync back to laptop:</strong><br>
+      1. Tap <em>Download Sync File</em> above<br>
+      2. Share via WhatsApp or AirDrop<br>
+      3. On laptop → Settings → <strong>Import Mobile Sync</strong><br>
+      4. Select the file — done ✅
+    </div>
+    <div style="height:30px"></div>
+  </div>
+</div>
+
+<!-- DATE MODAL -->
+<div class="modal-bg" id="date-modal" style="display:none" onclick="closeDateModal()">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <h3>Add Class Day</h3>
+    <p class="modal-hint">Enter the date of the class</p>
+    <div class="d-label">Date (YYYY-MM-DD)</div>
+    <input type="text" class="d-input" id="d-input" placeholder="2026-03-10" maxlength="10"
+           oninput="onDateInput(this.value)" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div class="d-preview" id="d-preview"></div>
+    <div class="modal-btn-row">
+      <button class="modal-btn cancel"  onclick="closeDateModal()">Cancel</button>
+      <button class="modal-btn confirm" id="d-confirm" onclick="confirmDateModal()" disabled>Add Day ✓</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ── STATE ─────────────────────────────────────────────
+var DATA       = null;
+var attendance = {};   // { "YYYY-MM-DD": { dbId: "present"|"absent" } }
+var payments   = {};   // { dbId: "Paid"|"Pending" }
+var classDays  = [];
+var activeDay  = null;
+var expanded   = { att:null, pay:null };
+var scanLog    = [];
+var scanStream = null, scanRaf = null;
+var lastScanned = null, lastScannedAt = 0;
+var detector   = null;
+
+// ── ERROR DISPLAY ─────────────────────────────────────
+function showErr(msg) {
+  var el = document.getElementById('import-err');
+  el.style.display = 'block';
+  el.innerHTML = msg;
+}
+function clearErr() {
+  var el = document.getElementById('import-err');
+  el.style.display = 'none'; el.innerHTML = '';
+}
+
+// ── FILE IMPORT ───────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', function(e) {
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  clearErr();
+  var lbl = document.querySelector('.file-label');
+  lbl.textContent = '⏳  Reading…';
+  var r = new FileReader();
+  r.onload = function(ev) {
+    lbl.textContent = '📂  Choose Export File';
+    processRaw(ev.target.result || '');
+  };
+  r.onerror = function() {
+    lbl.textContent = '📂  Choose Export File';
+    showErr('❌ <b>Could not read file.</b><br>Try sending via AirDrop instead of WhatsApp, or re-download.');
+  };
+  r.readAsText(f, 'UTF-8');
+});
+
+function processRaw(raw) {
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); // strip BOM
+  if (!raw.trim()) { showErr('❌ <b>File is empty.</b><br>Use the ara_mobile_*.json file from Settings → Export for Mobile.'); return; }
+  var d;
+  try { d = JSON.parse(raw); } catch(e) { showErr('❌ <b>Not a valid JSON file.</b><br>' + e.message + '<br>Export from the laptop again: Settings → 📤 Export for Mobile.'); return; }
+  if (!d || !Array.isArray(d.students)) { showErr('❌ <b>Wrong file.</b><br>This does not contain student data.<br>Use: Settings → 📤 Export for Mobile → send <b>ara_mobile_*.json</b> to phone.'); return; }
+  if (d.sync_type === 'mobile_sync') { showErr('❌ <b>Wrong file direction.</b><br>You selected the sync file (ara_sync_*.json).<br>You need the <b>export</b> file (ara_mobile_*.json).'); return; }
+  DATA = d;
+  // try to restore session first, otherwise seed fresh
+  if (!tryRestore()) {
+    payments = {};
+    DATA.students.forEach(function(s) { payments[s.id] = s.payment_status || 'Pending'; });
+    classDays = []; attendance = {}; activeDay = null;
+  }
+  var dt = new Date(), mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  document.getElementById('topbar-date').textContent = dt.getDate() + ' ' + mo[dt.getMonth()] + ' ' + dt.getFullYear();
+  document.getElementById('topbar-meta').textContent = DATA.students.length + ' students · ' + DATA.month_name + ' ' + DATA.year;
+  document.getElementById('import-screen').style.display = 'none';
+  var app = document.getElementById('app');
+  app.style.display = 'flex'; app.style.flexDirection = 'column';
+  // show iOS scan note on iPhone
+  if (/iP(hone|ad|od)/i.test(navigator.userAgent)) {
+    document.getElementById('ios-scan-note').style.display = 'block';
+  }
+  renderDayBar(); renderAtt(); renderPay();
+}
+
+// ── SESSION STORAGE — works on HTTPS ─────────────────
+var SESSION_KEY = 'ara_v3';
+function save() {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      xd: DATA.export_date,
+      attendance: attendance,
+      payments:   payments,
+      classDays:  classDays,
+      activeDay:  activeDay
+    }));
+  } catch(e) { /* silently skip if unavailable */ }
+}
+function tryRestore() {
+  try {
+    var raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return false;
+    var s = JSON.parse(raw);
+    if (!s || s.xd !== DATA.export_date) return false;
+    attendance = s.attendance || {};
+    payments   = s.payments   || {};
+    classDays  = s.classDays  || [];
+    activeDay  = s.activeDay  || null;
+    return true;
+  } catch(e) { return false; }
+}
+
+// ── TABS ──────────────────────────────────────────────
+function switchTab(name) {
+  ['attendance','scan','payments','export'].forEach(function(t,i) {
+    document.querySelectorAll('.tab')[i].classList.toggle('active', t === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name !== 'scan') stopScanner();
+  if (name === 'scan')   updateScanBadge();
+  if (name === 'export') renderExportSummary();
+}
+
+// ── CLASS DAYS ────────────────────────────────────────
+function todayISO() {
+  var d = new Date();
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+function pad(n) { return n < 10 ? '0'+n : ''+n; }
+function fmtDate(iso) {
+  var p = iso.split('-');
+  return p[2] + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1];
+}
+function isValidISO(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(new Date(v).getTime()); }
+
+function openDateModal() {
+  var inp = document.getElementById('d-input');
+  var today = todayISO();
+  inp.value = today;
+  onDateInput(today);
+  document.getElementById('date-modal').style.display = 'flex';
+  setTimeout(function() { inp.focus(); inp.select(); }, 80);
+}
+function closeDateModal() {
+  document.getElementById('date-modal').style.display = 'none';
+}
+function onDateInput(val) {
+  // auto-insert dashes: 20260310 → 2026-03-10
+  var digits = val.replace(/\D/g, '');
+  var fmt = digits;
+  if (digits.length > 4) fmt = digits.slice(0,4) + '-' + digits.slice(4);
+  if (digits.length > 6) fmt = digits.slice(0,4) + '-' + digits.slice(4,6) + '-' + digits.slice(6,8);
+  var inp = document.getElementById('d-input');
+  if (fmt !== val) inp.value = fmt;
+  var ok = isValidISO(fmt);
+  document.getElementById('d-preview').textContent = ok ? '📅 ' + fmtDate(fmt) : '';
+  document.getElementById('d-confirm').disabled = !ok;
+}
+function confirmDateModal() {
+  var v = document.getElementById('d-input').value;
+  if (!isValidISO(v)) return;
+  closeDateModal();
+  if (!classDays.includes(v)) { classDays.push(v); classDays.sort(); attendance[v] = attendance[v] || {}; }
+  activeDay = v;
+  save(); renderDayBar(); renderAtt();
+  toast('📅 ' + fmtDate(v) + ' added');
+}
+function selectDay(d) { activeDay = d; save(); renderDayBar(); renderAtt(); }
+
+function renderDayBar() {
+  var bar = document.getElementById('day-bar');
+  bar.innerHTML = classDays.map(function(d) {
+    return '<div class="day-chip' + (d===activeDay?' active':'') + '" onclick="selectDay(\'' + d + '\')">' + fmtDate(d) + '</div>';
+  }).join('') + '<div class="day-chip add-btn" onclick="openDateModal()">+ New Day</div>';
+  var has = activeDay !== null;
+  document.getElementById('no-day-msg').style.display = has ? 'none' : 'block';
+  document.getElementById('att-body').style.display   = has ? 'block' : 'none';
+}
+
+// ── ATTENDANCE ────────────────────────────────────────
+function renderAtt() {
+  if (!DATA) return;
+  var dm = activeDay ? (attendance[activeDay] || {}) : {};
+  var q  = ((document.getElementById('att-q') || {}).value || '').toLowerCase();
+  var p=0, a=0, u=0;
+  DATA.students.forEach(function(s) { var st=dm[s.id]; if(st==='present')p++; else if(st==='absent')a++; else u++; });
+  document.getElementById('a-present').textContent  = p;
+  document.getElementById('a-absent').textContent   = a;
+  document.getElementById('a-unmarked').textContent = u;
+  if (!activeDay) return;
+  var list = document.getElementById('att-list');
+  var stus = DATA.students.filter(function(s) { return !q || s.name.toLowerCase().indexOf(q)>=0 || (s.student_id||'').toLowerCase().indexOf(q)>=0; });
+  if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
+  list.innerHTML = stus.map(function(s) {
+    var st=dm[s.id], cc=st==='present'?'present':st==='absent'?'absent':'', isO=expanded.att===s.id;
+    var sl=st==='present'?'Present':st==='absent'?'Absent':'—', sc=st==='present'?'sp':st==='absent'?'sa':'sn';
+    var ini=s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+    return '<div class="student-card '+cc+(isO?' open':'') +'">'
+      +'<div class="sc-main" onclick="togExp(\'att\','+s.id+')">'
+        +'<div class="sc-av">'+ini+'</div>'
+        +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div><div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
+        +'<div class="sc-st '+sc+'">'+sl+'</div>'
+      +'</div>'
+      +'<div class="sc-acts">'
+        +'<button class="act a-present" onclick="setAtt('+s.id+',\'present\')">✅ Present</button>'
+        +'<button class="act a-absent"  onclick="setAtt('+s.id+',\'absent\')">❌ Absent</button>'
+        +'<button class="act a-ghost"   onclick="setAtt('+s.id+',null)" style="flex:.5">↩</button>'
+      +'</div></div>';
+  }).join('');
+}
+function setAtt(id, val) {
+  if (!activeDay) return;
+  if (!attendance[activeDay]) attendance[activeDay] = {};
+  if (val === null) delete attendance[activeDay][id]; else attendance[activeDay][id] = val;
+  expanded.att = null; save(); renderAtt();
+  toast(val==='present'?'✅ Present':val==='absent'?'❌ Absent':'↩ Cleared');
+}
+function togExp(t, id) { expanded[t] = expanded[t]===id ? null : id; t==='att' ? renderAtt() : renderPay(); }
+
+// ── QR SCANNER ────────────────────────────────────────
+function updateScanBadge() {
+  var lbl=document.getElementById('scan-day-lbl'), noDay=document.getElementById('scan-no-day'), body=document.getElementById('scan-body');
+  if (activeDay) { lbl.textContent=fmtDate(activeDay)+' '+activeDay.slice(0,4); noDay.style.display='none'; body.style.display='block'; }
+  else           { noDay.style.display='block'; body.style.display='none'; }
+}
+async function startScanner() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showScanErr('<b>Camera not supported</b> in this browser. Try Chrome on Android.'); return;
+  }
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
+  } catch(e) { showScanErr('<b>Camera access denied.</b> Allow camera permission and try again.'); return; }
+  var vid = document.getElementById('scan-video');
+  vid.srcObject = scanStream; await vid.play();
+  document.getElementById('scan-idle').style.display='none';
+  document.getElementById('scan-live').style.display='block';
+  if (window.BarcodeDetector) {
+    try { detector = new BarcodeDetector({ formats:['qr_code'] }); } catch(e) { detector=null; }
+  }
+  var cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
+  function scanFrame() {
+    if (!scanStream) return;
+    if (vid.readyState < 2) { scanRaf=requestAnimationFrame(scanFrame); return; }
+    cvs.width=vid.videoWidth; cvs.height=vid.videoHeight; ctx.drawImage(vid,0,0);
+    if (detector) {
+      detector.detect(cvs).then(function(codes) {
+        if (codes.length) handleQRScan(codes[0].rawValue.trim());
+      }).catch(function(){}).finally(function() { if(scanStream) scanRaf=requestAnimationFrame(scanFrame); });
+    } else {
+      if (!document.getElementById('scan-err').style.display || document.getElementById('scan-err').style.display==='none') {
+        showScanErr('Camera is on but QR auto-detection requires Chrome on Android.<br>Use the <b>Attendance tab</b> to mark manually.');
+      }
+      scanRaf=requestAnimationFrame(scanFrame);
+    }
+  }
+  scanRaf=requestAnimationFrame(scanFrame);
+}
+function showScanErr(msg) { var el=document.getElementById('scan-err'); el.style.display='block'; el.innerHTML=msg; }
+function stopScanner() {
+  if (scanRaf)    { cancelAnimationFrame(scanRaf); scanRaf=null; }
+  if (scanStream) { scanStream.getTracks().forEach(function(t){t.stop();}); scanStream=null; }
+  detector=null;
+  document.getElementById('scan-live').style.display='none';
+  document.getElementById('scan-idle').style.display='block';
+  document.getElementById('scan-err').style.display='none';
+}
+function handleQRScan(value) {
+  if (!DATA||!activeDay) return;
+  var now=Date.now();
+  if (value===lastScanned && now-lastScannedAt<3000) return;
+  lastScanned=value; lastScannedAt=now;
+  var s=DATA.students.filter(function(s){ return (s.student_id||'').trim().toLowerCase()===value.toLowerCase()||String(s.id)===value; })[0];
+  var frame=document.getElementById('scan-frame');
+  if (!s) { frame.style.borderColor='var(--red)'; setTimeout(function(){frame.style.borderColor='var(--accent)';},800); toast('❓ Unknown: '+value); return; }
+  if (!attendance[activeDay]) attendance[activeDay]={};
+  attendance[activeDay][s.id]='present'; save();
+  frame.style.borderColor='var(--green)'; setTimeout(function(){frame.style.borderColor='var(--accent)';},1000);
+  if (navigator.vibrate) navigator.vibrate([60,30,60]);
+  document.getElementById('scan-result').style.display='block';
+  document.getElementById('sr-name').textContent=s.name;
+  document.getElementById('sr-id').textContent=s.student_id||'—';
+  var t=new Date(), ts=pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
+  scanLog.unshift({name:s.name,time:ts});
+  document.getElementById('scan-log-wrap').style.display='block';
+  document.getElementById('scan-log').innerHTML=scanLog.slice(0,20).map(function(r){
+    return '<div style="display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:6px">'
+      +'<div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>'
+      +'<div style="flex:1;font-size:14px;font-weight:600">'+esc(r.name)+'</div>'
+      +'<div style="font-size:12px;color:var(--muted)">'+r.time+'</div></div>';
+  }).join('');
+  renderAtt(); toast('✅ '+s.name+' — Present');
+}
+
+// ── PAYMENTS ──────────────────────────────────────────
+function renderPay() {
+  if (!DATA) return;
+  var q=((document.getElementById('pay-q')||{}).value||'').toLowerCase();
+  var pa=0, pe=0;
+  DATA.students.forEach(function(s){ if((payments[s.id]||'Pending')==='Paid')pa++; else pe++; });
+  document.getElementById('p-paid').textContent    = pa;
+  document.getElementById('p-pending').textContent = pe;
+  document.getElementById('p-total').textContent   = DATA.students.length;
+  var list=document.getElementById('pay-list');
+  var stus=DATA.students.filter(function(s){return !q||s.name.toLowerCase().indexOf(q)>=0||(s.student_id||'').toLowerCase().indexOf(q)>=0;});
+  if (!stus.length){list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>';return;}
+  list.innerHTML=stus.map(function(s){
+    var st=payments[s.id]||'Pending', isPaid=st==='Paid', isO=expanded.pay===s.id;
+    var ini=s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+    var fee=s.fee_amount?'Rs. '+Number(s.fee_amount).toLocaleString():'—';
+    var btn=isPaid
+      ?'<button class="act a-unpaid" onclick="setPay('+s.id+',\'Pending\')">↩ Mark Unpaid</button>'
+      :'<button class="act a-paid"   onclick="setPay('+s.id+',\'Paid\')">✅ Mark Paid</button>';
+    return '<div class="student-card '+(isPaid?'paid':'')+(isO?' open':'') +'">'
+      +'<div class="sc-main" onclick="togExp(\'pay\','+s.id+')">'
+        +'<div class="sc-av">'+ini+'</div>'
+        +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div><div class="sc-sub">'+esc(s.student_id||'—')+' · '+fee+'</div></div>'
+        +'<div class="sc-st '+(isPaid?'sk':'sq')+'">'+st+'</div>'
+      +'</div>'
+      +'<div class="sc-acts">'+btn+'</div></div>';
+  }).join('');
+}
+function setPay(id,val){payments[id]=val;expanded.pay=null;save();renderPay();toast(val==='Paid'?'✅ Marked Paid':'↩ Marked Pending');}
+
+// ── EXPORT ────────────────────────────────────────────
+function renderExportSummary() {
+  if (!DATA) return;
+  var html='';
+  if (!classDays.length) { html='<span style="color:var(--amber)">No class days recorded yet.</span>'; }
+  else {
+    classDays.forEach(function(d){
+      var dm=attendance[d]||{},p=0,a=0;
+      Object.values(dm).forEach(function(v){if(v==='present')p++;else if(v==='absent')a++;});
+      var u=DATA.students.length-p-a;
+      html+='<b>'+fmtDate(d)+'</b> &nbsp; <span style="color:var(--green)">'+p+'</span> present · <span style="color:var(--red)">'+a+'</span> absent'+(u>0?' · <span style="color:var(--amber)">'+u+'</span> unmarked':'')+'<br>';
+    });
+    html+='<br>';
+  }
+  var pa=Object.values(payments).filter(function(v){return v==='Paid';}).length;
+  html+='<b>Payments ('+DATA.month_name+' '+DATA.year+')</b><br>'
+    +'<span style="color:var(--green)">'+pa+'</span> paid · <span style="color:var(--amber)">'+(DATA.students.length-pa)+'</span> pending';
+  document.getElementById('export-summary').innerHTML=html;
+}
+function exportSync() {
+  if (!DATA) return;
+  var attRec=[];
+  classDays.forEach(function(d){
+    var dm=attendance[d]||{};
+    DATA.students.forEach(function(s){var st=dm[s.id]||null;if(st)attRec.push({student_id:s.id,date:d,status:st});});
+  });
+  var first=classDays[0]||DATA.export_date, last=classDays[classDays.length-1]||DATA.export_date;
+  var out={sync_type:'mobile_sync',exported_at:new Date().toISOString(),export_date:DATA.export_date,
+    month:DATA.month,year:DATA.year,month_name:DATA.month_name,class_days:classDays,attendance:attRec,
+    payments:DATA.students.map(function(s){return{student_id:s.id,month:DATA.month,year:DATA.year,status:payments[s.id]||'Pending',fee_amount:s.fee_amount};})
+  };
+  var blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='ara_sync_'+first+'_to_'+last+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  toast('✅ Sync file downloaded!');
+}
+
+// ── UTILS ─────────────────────────────────────────────
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+var toastT;
+function toast(msg){var el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(function(){el.classList.remove('show');},2500);}
+</script>
+</body>
+</html>
