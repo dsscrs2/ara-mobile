@@ -487,6 +487,7 @@ function updateScanBadge() {
   else           { noDay.style.display='block'; body.style.display='none'; }
 }
 async function startScanner() {
+  initAudio(); // must be called from user gesture — unlocks audio on iOS
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showScanErr('<b>Camera not supported</b> in this browser. Try Chrome on Android.'); return;
   }
@@ -670,19 +671,30 @@ function showFallback(jsonStr, filename) {
 }
 
 // ── UTILS ─────────────────────────────────────────────
+var audioCtx = null;
+
+function initAudio() {
+  // Must be called directly from a user tap — iOS requires this
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch(e) {}
+}
+
 function beep() {
   try {
-    var ctx = new (window.AudioContext || window.webkitAudioContext)();
-    var osc = ctx.createOscillator();
-    var gain = ctx.createGain();
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var osc  = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(audioCtx.destination);
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(1046, ctx.currentTime);       // high C note
-    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.18);
+    osc.frequency.setValueAtTime(1046, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.18);
   } catch(e) {}
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
