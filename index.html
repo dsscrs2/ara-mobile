@@ -487,7 +487,17 @@ function updateScanBadge() {
   else           { noDay.style.display='block'; body.style.display='none'; }
 }
 async function startScanner() {
-  initAudio(); // must be called from user gesture — unlocks audio on iOS
+  // iOS: unlock audio BEFORE any await — play a real silent buffer synchronously
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    // play a zero-length silent buffer — this is what truly unlocks iOS audio
+    var buf = audioCtx.createBuffer(1, 1, 22050);
+    var src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start(0);
+  } catch(e) {}
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showScanErr('<b>Camera not supported</b> in this browser. Try Chrome on Android.'); return;
   }
