@@ -217,6 +217,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
         <div id="sr-name" style="font-size:17px;font-weight:700"></div>
         <div id="sr-id"   style="font-size:13px;color:var(--muted);margin-top:2px"></div>
         <div style="font-size:13px;color:var(--green);font-weight:600;margin-top:6px">Marked Present</div>
+        <div id="sr-due"  style="display:none;margin-top:8px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;color:var(--amber)"></div>
       </div>
       <div id="scan-log-wrap" style="display:none;padding:0 12px">
         <div class="section-label">Scanned this session</div>
@@ -475,12 +476,35 @@ function renderAtt() {
       +'</div></div>';
   }).join('');
 }
+function getDueInfo(sid) {
+  // returns { count, label } of pending months for a student
+  var s = DATA && DATA.students.filter(function(x){ return x.id === sid; })[0];
+  if (!s) return null;
+  var pending = (s.due_months || []).filter(function(m) {
+    return (payments[payKey(s.id, m.month, m.year)] || m.status) === 'Pending';
+  });
+  if (!pending.length) return null;
+  var label = pending.length === 1
+    ? pending[0].month_name + ' ' + pending[0].year + ' unpaid'
+    : pending.length + ' months unpaid';
+  return { count: pending.length, label: label };
+}
+
 function setAtt(id, val) {
   if (!activeDay) return;
   if (!attendance[activeDay]) attendance[activeDay] = {};
   if (val === null) delete attendance[activeDay][id]; else attendance[activeDay][id] = val;
   expanded.att = null; save(); renderAtt();
-  toast(val==='present'?'✅ Present':val==='absent'?'❌ Absent':'↩ Cleared');
+  if (val === 'present') {
+    var due = getDueInfo(id);
+    if (due) {
+      toast('✅ Present  ·  ⚠️ ' + due.label, 'due');
+    } else {
+      toast('✅ Present');
+    }
+  } else {
+    toast(val === 'absent' ? '❌ Absent' : '↩ Cleared');
+  }
 }
 function togExp(t, id) { expanded[t] = expanded[t]===id ? null : id; t==='att' ? renderAtt() : renderPay(); }
 
@@ -615,6 +639,16 @@ function handleQRScan(value) {
     result.style.display   = 'block';
     document.getElementById('sr-name').textContent = s.name;
     document.getElementById('sr-id').textContent   = s.student_id || '—';
+
+    // dues info
+    var due = getDueInfo(s.id);
+    var dueEl = document.getElementById('sr-due');
+    if (due) {
+      dueEl.style.display = 'block';
+      dueEl.textContent   = '⚠️ ' + due.label;
+    } else {
+      dueEl.style.display = 'none';
+    }
     setTimeout(function() {
       result.style.opacity   = '1';
       result.style.transform = 'translateY(0)';
@@ -849,7 +883,16 @@ function beep() {
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 var toastT;
-function toast(msg){var el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(function(){el.classList.remove('show');},2500);}
+function toast(msg, type) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor  = type === 'due' ? 'rgba(245,158,11,.5)' : '';
+  el.style.background   = type === 'due' ? '#1c1a0f' : '';
+  el.style.color        = type === 'due' ? 'var(--amber)' : '';
+  el.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(function(){ el.classList.remove('show'); }, type === 'due' ? 3500 : 2500);
+}
 </script>
 </body>
 </html>
