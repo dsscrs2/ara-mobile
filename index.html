@@ -891,7 +891,7 @@ function toast(msg, type) {
   el.style.color        = type === 'due' ? 'var(--amber)' : '';
   el.classList.add('show');
   clearTimeout(toastT);
-  toastT = setTimeout(function(){ el.classList.remove('show'); }, type === 'due' ? 3500 : 2500);
+  toastT = setTimeout(function(){ el.classList.remove('show'); }, type === 'due' ? 4000 : 2500);
 }
 </script>
 </body>
