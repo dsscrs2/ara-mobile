@@ -549,31 +549,99 @@ function stopScanner() {
   document.getElementById('scan-err').style.display='none';
 }
 function handleQRScan(value) {
-  if (!DATA||!activeDay) return;
-  var now=Date.now();
-  if (value===lastScanned && now-lastScannedAt<3000) return;
-  lastScanned=value; lastScannedAt=now;
-  var s=DATA.students.filter(function(s){ return (s.student_id||'').trim().toLowerCase()===value.toLowerCase()||String(s.id)===value; })[0];
-  var frame=document.getElementById('scan-frame');
-  if (!s) { frame.style.borderColor='var(--red)'; setTimeout(function(){frame.style.borderColor='var(--accent)';},800); toast('❓ Unknown: '+value); return; }
-  if (!attendance[activeDay]) attendance[activeDay]={};
-  attendance[activeDay][s.id]='present'; save();
-  frame.style.borderColor='var(--green)'; setTimeout(function(){frame.style.borderColor='var(--accent)';},1000);
-  if (navigator.vibrate) navigator.vibrate([60,30,60]);
+  if (!DATA || !activeDay) return;
+  var now = Date.now();
+  if (value === lastScanned && now - lastScannedAt < 4000) return;
+  lastScanned = value; lastScannedAt = now;
+
+  var s = DATA.students.filter(function(s) {
+    return (s.student_id||'').trim().toLowerCase() === value.toLowerCase() || String(s.id) === value;
+  })[0];
+
+  var frame = document.getElementById('scan-frame');
+
+  if (!s) {
+    // Unknown QR — red flash, short pause, resume
+    frame.style.borderColor = 'var(--red)';
+    frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5), 0 0 24px rgba(239,68,68,.6)';
+    if (scanRaf) { cancelAnimationFrame(scanRaf); scanRaf = null; }
+    toast('❓ Unknown: ' + value);
+    setTimeout(function() {
+      frame.style.borderColor = 'var(--accent)';
+      frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5)';
+      if (scanStream) {
+        var vid=document.getElementById('scan-video'), cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
+        (function loop() { if(!scanStream)return; if(vid.readyState<2){scanRaf=requestAnimationFrame(loop);return;} cvs.width=vid.videoWidth;cvs.height=vid.videoHeight;ctx.drawImage(vid,0,0); if(detector){detector.detect(cvs).then(function(c){if(c.length)handleQRScan(c[0].rawValue.trim());}).catch(function(){}).finally(function(){if(scanStream)scanRaf=requestAnimationFrame(loop);});}else if(window.jsQR){var id=ctx.getImageData(0,0,cvs.width,cvs.height);var c=jsQR(id.data,id.width,id.height,{inversionAttempts:'dontInvert'});if(c&&c.data)handleQRScan(c.data.trim());scanRaf=requestAnimationFrame(loop);}})();
+      }
+    }, 800);
+    return;
+  }
+
+  // ── SUCCESSFUL SCAN ──────────────────────────────────
+  // 1. Pause scanning loop immediately
+  if (scanRaf) { cancelAnimationFrame(scanRaf); scanRaf = null; }
+
+  // 2. Green frame + glow
+  frame.style.borderColor = 'var(--green)';
+  frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5), 0 0 32px rgba(34,197,94,.7)';
+  frame.style.transform   = 'scale(1.08)';
+  frame.style.transition  = 'all .15s ease';
+
+  // 3. Sound + vibrate immediately
   beep();
-  document.getElementById('scan-result').style.display='block';
-  document.getElementById('sr-name').textContent=s.name;
-  document.getElementById('sr-id').textContent=s.student_id||'—';
-  var t=new Date(), ts=pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
-  scanLog.unshift({name:s.name,time:ts});
-  document.getElementById('scan-log-wrap').style.display='block';
-  document.getElementById('scan-log').innerHTML=scanLog.slice(0,20).map(function(r){
-    return '<div style="display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:6px">'
-      +'<div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>'
-      +'<div style="flex:1;font-size:14px;font-weight:600">'+esc(r.name)+'</div>'
-      +'<div style="font-size:12px;color:var(--muted)">'+r.time+'</div></div>';
-  }).join('');
-  renderAtt(); toast('✅ '+s.name+' — Present');
+  if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
+
+  // 4. Mark attendance
+  if (!attendance[activeDay]) attendance[activeDay] = {};
+  attendance[activeDay][s.id] = 'present';
+  save();
+
+  // 5. After 1 second — show result card, update log
+  setTimeout(function() {
+    // reset frame
+    frame.style.borderColor = 'var(--accent)';
+    frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5)';
+    frame.style.transform   = 'scale(1)';
+
+    // show result card with fade-in
+    var result = document.getElementById('scan-result');
+    result.style.opacity   = '0';
+    result.style.transform = 'translateY(8px)';
+    result.style.transition= 'opacity .25s ease, transform .25s ease';
+    result.style.display   = 'block';
+    document.getElementById('sr-name').textContent = s.name;
+    document.getElementById('sr-id').textContent   = s.student_id || '—';
+    setTimeout(function() {
+      result.style.opacity   = '1';
+      result.style.transform = 'translateY(0)';
+    }, 20);
+
+    // update scan log
+    var t = new Date(), ts = pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
+    scanLog.unshift({ name:s.name, time:ts });
+    document.getElementById('scan-log-wrap').style.display = 'block';
+    document.getElementById('scan-log').innerHTML = scanLog.slice(0,20).map(function(r) {
+      return '<div style="display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:6px">'
+        +'<div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>'
+        +'<div style="flex:1;font-size:14px;font-weight:600">'+esc(r.name)+'</div>'
+        +'<div style="font-size:12px;color:var(--muted)">'+r.time+'</div></div>';
+    }).join('');
+    renderAtt();
+
+    // 6. After another 1.2 seconds — hide result, resume scanning
+    setTimeout(function() {
+      result.style.opacity   = '0';
+      result.style.transform = 'translateY(8px)';
+      setTimeout(function() { result.style.display = 'none'; }, 250);
+
+      // resume scanning loop
+      if (scanStream) {
+        var vid=document.getElementById('scan-video'), cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
+        (function loop() { if(!scanStream)return; if(vid.readyState<2){scanRaf=requestAnimationFrame(loop);return;} cvs.width=vid.videoWidth;cvs.height=vid.videoHeight;ctx.drawImage(vid,0,0); if(detector){detector.detect(cvs).then(function(c){if(c.length)handleQRScan(c[0].rawValue.trim());}).catch(function(){}).finally(function(){if(scanStream)scanRaf=requestAnimationFrame(loop);});}else if(window.jsQR){var id=ctx.getImageData(0,0,cvs.width,cvs.height);var c=jsQR(id.data,id.width,id.height,{inversionAttempts:'dontInvert'});if(c&&c.data)handleQRScan(c.data.trim());scanRaf=requestAnimationFrame(loop);}})();
+      }
+    }, 1200);
+
+  }, 900);
 }
 
 // ── PAYMENTS ──────────────────────────────────────────
