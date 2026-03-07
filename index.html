@@ -329,7 +329,11 @@ function processRaw(raw) {
   // try to restore session first, otherwise seed fresh
   if (!tryRestore()) {
     payments = {};
-    DATA.students.forEach(function(s) { payments[s.id] = s.payment_status || 'Pending'; });
+    DATA.students.forEach(function(s) {
+      (s.due_months || []).forEach(function(m) {
+        payments[payKey(s.id, m.month, m.year)] = m.status || 'Pending';
+      });
+    });
     classDays = []; attendance = {}; activeDay = null;
   }
   var dt = new Date(), mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -645,87 +649,155 @@ function handleQRScan(value) {
 }
 
 // ── PAYMENTS ──────────────────────────────────────────
+// payments state: { "studentId_month_year": "Paid"|"Pending" }
+// e.g. { "76_1_2026": "Paid", "76_2_2026": "Pending" }
+function payKey(sid, mn, yr) { return sid + '_' + mn + '_' + yr; }
+
 function renderPay() {
   if (!DATA) return;
-  var q=((document.getElementById('pay-q')||{}).value||'').toLowerCase();
-  var pa=0, pe=0;
-  DATA.students.forEach(function(s){ if((payments[s.id]||'Pending')==='Paid')pa++; else pe++; });
-  document.getElementById('p-paid').textContent    = pa;
-  document.getElementById('p-pending').textContent = pe;
-  document.getElementById('p-total').textContent   = DATA.students.length;
-  var list=document.getElementById('pay-list');
-  var stus=DATA.students.filter(function(s){return !q||s.name.toLowerCase().indexOf(q)>=0||(s.student_id||'').toLowerCase().indexOf(q)>=0;});
-  if (!stus.length){list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>';return;}
-  list.innerHTML=stus.map(function(s){
-    var st=payments[s.id]||'Pending', isPaid=st==='Paid', isO=expanded.pay===s.id;
-    var ini=s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
-    var fee=s.fee_amount?'Rs. '+Number(s.fee_amount).toLocaleString():'—';
-    var btn=isPaid
-      ?'<button class="act a-unpaid" onclick="setPay('+s.id+',\'Pending\')">↩ Mark Unpaid</button>'
-      :'<button class="act a-paid"   onclick="setPay('+s.id+',\'Paid\')">✅ Mark Paid</button>';
-    return '<div class="student-card '+(isPaid?'paid':'')+(isO?' open':'') +'">'
+  var q = ((document.getElementById('pay-q') || {}).value || '').toLowerCase();
+  var totalMonths = 0, paidMonths = 0;
+  DATA.students.forEach(function(s) {
+    (s.due_months || []).forEach(function(m) {
+      totalMonths++;
+      if ((payments[payKey(s.id, m.month, m.year)] || m.status) === 'Paid') paidMonths++;
+    });
+  });
+  document.getElementById('p-paid').textContent    = paidMonths;
+  document.getElementById('p-pending').textContent = totalMonths - paidMonths;
+  document.getElementById('p-total').textContent   = totalMonths;
+
+  var list = document.getElementById('pay-list');
+  var stus = DATA.students.filter(function(s) {
+    return !q || s.name.toLowerCase().indexOf(q) >= 0 || (s.student_id||'').toLowerCase().indexOf(q) >= 0;
+  });
+  if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
+
+  list.innerHTML = stus.map(function(s) {
+    var months = s.due_months || [];
+    var isO    = expanded.pay === s.id;
+    var ini    = s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
+
+    // count pending months for this student
+    var pendingCount = months.filter(function(m) {
+      return (payments[payKey(s.id, m.month, m.year)] || m.status) === 'Pending';
+    }).length;
+    var allPaid = pendingCount === 0;
+    var totalAmt = months.filter(function(m) {
+      return (payments[payKey(s.id, m.month, m.year)] || m.status) === 'Pending';
+    }).reduce(function(sum, m) { return sum + (m.amount || 0); }, 0);
+
+    var badge = allPaid
+      ? '<div class="sc-st sk">All Paid</div>'
+      : '<div class="sc-st sq">'+pendingCount+' unpaid</div>';
+
+    // month rows shown when expanded
+    var monthRows = months.map(function(m) {
+      var key    = payKey(s.id, m.month, m.year);
+      var st     = payments[key] || m.status;
+      var isPaid = st === 'Paid';
+      var isWaived = st === 'Waived';
+      var rowColor = isPaid ? 'rgba(34,197,94,.06)' : isWaived ? 'rgba(167,139,250,.06)' : 'rgba(245,158,11,.06)';
+      var badge2   = isPaid ? '<span style="font-size:11px;font-weight:700;color:var(--green)">✅ Paid</span>'
+                   : isWaived ? '<span style="font-size:11px;font-weight:700;color:#a78bfa">🎫 Waived</span>'
+                   : '<span style="font-size:11px;font-weight:700;color:var(--amber)">Pending</span>';
+      var btn = isWaived ? '' : isPaid
+        ? '<button onclick="setPay('+s.id+','+m.month+','+m.year+',\'Pending\')" style="background:var(--surf2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">↩</button>'
+        : '<button onclick="setPay('+s.id+','+m.month+','+m.year+',\'Paid\')" style="background:var(--green);color:white;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">Mark Paid</button>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:'+rowColor+';border-top:1px solid var(--border);">'
+        +'<div style="flex:1;font-size:13px;font-weight:600;">'+m.month_name+' '+m.year+'</div>'
+        +'<div style="font-size:12px;color:var(--muted);margin-right:4px;">Rs. '+Number(m.amount||0).toLocaleString()+'</div>'
+        +badge2
+        +'<div style="margin-left:4px;">'+btn+'</div>'
+        +'</div>';
+    }).join('');
+
+    // total due footer shown when expanded and has pending
+    var footer = (!allPaid && isO)
+      ? '<div style="display:flex;justify-content:space-between;padding:8px 12px 10px;border-top:1px solid var(--border);background:rgba(245,158,11,.06);">'
+        +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Total Due</span>'
+        +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Rs. '+totalAmt.toLocaleString()+'</span>'
+        +'</div>'
+      : '';
+
+    return '<div class="student-card '+(allPaid?'paid':'')+(isO?' open':'')+'">'
       +'<div class="sc-main" onclick="togExp(\'pay\','+s.id+')">'
         +'<div class="sc-av">'+ini+'</div>'
-        +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div><div class="sc-sub">'+esc(s.student_id||'—')+' · '+fee+'</div></div>'
-        +'<div class="sc-st '+(isPaid?'sk':'sq')+'">'+st+'</div>'
+        +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div>'
+        +'<div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
+        +badge
       +'</div>'
-      +'<div class="sc-acts">'+btn+'</div></div>';
+      +(isO ? monthRows + footer : '')
+      +'</div>';
   }).join('');
 }
-function setPay(id,val){payments[id]=val;expanded.pay=null;save();renderPay();toast(val==='Paid'?'✅ Marked Paid':'↩ Marked Pending');}
+
+function setPay(sid, mn, yr, val) {
+  payments[payKey(sid, mn, yr)] = val;
+  save(); renderPay();
+  toast(val === 'Paid' ? '✅ Marked Paid' : '↩ Marked Pending');
+}
 
 // ── EXPORT ────────────────────────────────────────────
 function renderExportSummary() {
   if (!DATA) return;
-  var html='';
+  var html = '';
   if (!classDays.length) { html='<span style="color:var(--amber)">No class days recorded yet.</span>'; }
   else {
-    classDays.forEach(function(d){
-      var dm=attendance[d]||{},p=0,a=0;
+    classDays.forEach(function(d) {
+      var dm=attendance[d]||{}, p=0, a=0;
       Object.values(dm).forEach(function(v){if(v==='present')p++;else if(v==='absent')a++;});
-      var u=DATA.students.length-p-a;
-      html+='<b>'+fmtDate(d)+'</b> &nbsp; <span style="color:var(--green)">'+p+'</span> present · <span style="color:var(--red)">'+a+'</span> absent'+(u>0?' · <span style="color:var(--amber)">'+u+'</span> unmarked':'')+'<br>';
+      var u = DATA.students.length - p - a;
+      html += '<b>'+fmtDate(d)+'</b> &nbsp; <span style="color:var(--green)">'+p+'</span> present · <span style="color:var(--red)">'+a+'</span> absent'+(u>0?' · <span style="color:var(--amber)">'+u+'</span> unmarked':'')+'<br>';
     });
-    html+='<br>';
+    html += '<br>';
   }
-  var pa=Object.values(payments).filter(function(v){return v==='Paid';}).length;
-  html+='<b>Payments ('+DATA.month_name+' '+DATA.year+')</b><br>'
-    +'<span style="color:var(--green)">'+pa+'</span> paid · <span style="color:var(--amber)">'+(DATA.students.length-pa)+'</span> pending';
-  document.getElementById('export-summary').innerHTML=html;
+  var totalMonths=0, paidMonths=0;
+  DATA.students.forEach(function(s) {
+    (s.due_months||[]).forEach(function(m) {
+      totalMonths++;
+      if ((payments[payKey(s.id,m.month,m.year)]||m.status)==='Paid') paidMonths++;
+    });
+  });
+  html += '<b>Payments</b><br>'
+    +'<span style="color:var(--green)">'+paidMonths+'</span> months paid · <span style="color:var(--amber)">'+(totalMonths-paidMonths)+'</span> pending';
+  document.getElementById('export-summary').innerHTML = html;
 }
+
 function exportSync() {
   if (!DATA) return;
-  var attRec=[];
-  classDays.forEach(function(d){
-    var dm=attendance[d]||{};
-    DATA.students.forEach(function(s){var st=dm[s.id]||null;if(st)attRec.push({student_id:s.id,date:d,status:st});});
+  var attRec = [];
+  classDays.forEach(function(d) {
+    var dm = attendance[d]||{};
+    DATA.students.forEach(function(s){ var st=dm[s.id]||null; if(st) attRec.push({student_id:s.id,date:d,status:st}); });
+  });
+  // one record per month per student
+  var payRec = [];
+  DATA.students.forEach(function(s) {
+    (s.due_months||[]).forEach(function(m) {
+      payRec.push({ student_id:s.id, month:m.month, year:m.year,
+        status: payments[payKey(s.id,m.month,m.year)] || m.status,
+        fee_amount: m.amount || s.fee_amount || 0 });
+    });
   });
   var first=classDays[0]||DATA.export_date, last=classDays[classDays.length-1]||DATA.export_date;
   var filename = 'ara_sync_'+first+'_to_'+last+'.json';
   var jsonStr = JSON.stringify({
     sync_type:'mobile_sync', exported_at:new Date().toISOString(), export_date:DATA.export_date,
     month:DATA.month, year:DATA.year, month_name:DATA.month_name, class_days:classDays,
-    attendance:attRec,
-    payments:DATA.students.map(function(s){return{student_id:s.id,month:DATA.month,year:DATA.year,status:payments[s.id]||'Pending',fee_amount:s.fee_amount};})
+    attendance:attRec, payments:payRec
   }, null, 2);
-
   var blob = new Blob([jsonStr], {type:'application/json'});
   var file = new File([blob], filename, {type:'application/json'});
-
-  // iOS Safari: use Web Share API with file — shows native share sheet (Save to Files, WhatsApp, etc.)
   if (navigator.canShare && navigator.canShare({files:[file]})) {
-    navigator.share({ files:[file], title:'ARA Sync File', text:'Attendance sync for '+DATA.month_name+' '+DATA.year })
+    navigator.share({ files:[file], title:'ARA Sync File', text:'Sync for '+DATA.month_name+' '+DATA.year })
       .then(function(){ toast('✅ Shared successfully!'); })
       .catch(function(e){ if(e.name!=='AbortError') showFallback(jsonStr, filename); });
     return;
   }
-
-  // Android / desktop: standard blob download
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
+  var url=URL.createObjectURL(blob), a=document.createElement('a');
   a.href=url; a.download=filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   toast('✅ Sync file downloaded!');
 }
 
