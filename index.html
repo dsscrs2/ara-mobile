@@ -372,9 +372,9 @@ function showConnectErr(msg) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SUPABASE — CONNECT (hardcoded credentials)
+// SUPABASE — AUTH LOGIN
 // ═══════════════════════════════════════════════════════════
-var LOGIN_KEY = 'ara_login_v1';
+var ADMIN_EMAIL = 'admin@ara.com';
 
 function initSupabaseClient(url, key) {
   var factory = window.supabase && window.supabase.createClient;
@@ -383,48 +383,32 @@ function initSupabaseClient(url, key) {
   return true;
 }
 
-// SHA-256 using Web Crypto API
-async function sha256hex(str) {
-  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
-}
-
 async function doLogin() {
   var pw = (document.getElementById('login-pw').value || '').trim();
   if (!pw) { showConnectErr('Please enter your password.'); return; }
   var btn = document.getElementById('login-btn');
   btn.disabled = true;
-  btn.textContent = 'Checking…';
+  btn.innerHTML = 'Checking…';
   try {
-    var hash = await sha256hex(pw);
-    // Fetch stored hash from settings table
-    var url = SUPABASE_URL + '/rest/v1/settings?key=eq.password&select=value';
-    var resp = await fetch(url, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
-    });
-    var data = await resp.json();
-    if (!data || !data.length) { throw new Error('Could not read password from database.'); }
-    var storedHash = data[0].value;
-    if (hash === storedHash) {
-      // Save login session (expires when browser closes)
-      try { sessionStorage.setItem(LOGIN_KEY, '1'); } catch(e) {}
-      showLoading('Loading students…');
-      loadFromSupabase();
-    } else {
+    var result = await sb.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
+    if (result.error) {
       showConnectErr('Incorrect password. Please try again.');
       document.getElementById('login-pw').value = '';
       document.getElementById('login-pw').focus();
+    } else {
+      showLoading('Loading students…');
+      loadFromSupabase();
     }
   } catch(e) {
     showConnectErr('Error: ' + e.message);
   }
   btn.disabled = false;
-  btn.textContent = '🔓  Login';
+  btn.innerHTML = '🔓 &nbsp; Login';
 }
 
-function disconnectSupabase() {
+async function disconnectSupabase() {
   if (!confirm('Log out?')) return;
-  try { sessionStorage.removeItem(LOGIN_KEY); } catch(e) {}
+  try { await sb.auth.signOut(); } catch(e) {}
   try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
   DATA = null; attendance = {}; payments = {}; classDays = []; activeDay = null;
   stopScanner();
@@ -1061,15 +1045,15 @@ function toast(msg, type) {
   SUPABASE_URL = url;
   SUPABASE_KEY = key;
   initSupabaseClient(url, key);
-  // If already logged in this session, skip login screen
-  var loggedIn = false;
-  try { loggedIn = sessionStorage.getItem(LOGIN_KEY) === '1'; } catch(e) {}
-  if (loggedIn) {
-    showLoading('Loading students…');
-    loadFromSupabase();
-  } else {
-    showConnectScreen();
-  }
+  // Check for an existing Supabase Auth session
+  sb.auth.getSession().then(function(result) {
+    if (result.data && result.data.session) {
+      showLoading('Loading students…');
+      loadFromSupabase();
+    } else {
+      showConnectScreen();
+    }
+  });
 })();
 </script>
 </body>
