@@ -198,6 +198,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     <div class="tab active" onclick="switchTab('attendance')">📋 Attend.</div>
     <div class="tab"        onclick="switchTab('scan')">📷 Scan</div>
     <div class="tab"        onclick="switchTab('payments')">💰 Pay</div>
+    <div class="tab"        onclick="switchTab('addstudent')">➕ Add</div>
     <div class="tab"        onclick="switchTab('status')">☁️ Sync</div>
   </div>
 
@@ -265,6 +266,38 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     </div>
     <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q" oninput="renderPay()"></div>
     <div class="student-list" id="pay-list"></div>
+  </div>
+
+  <!-- ADD STUDENT TAB -->
+  <div class="tab-content" id="tab-addstudent">
+    <div class="export-card">
+      <h3>➕ Add New Student</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Student will be added to Supabase immediately.</p>
+
+      <label class="conn-label">Full Name <span style="color:var(--red)">*</span></label>
+      <input type="text" id="ns-name" class="conn-input" placeholder="e.g. Kavindu Perera" autocorrect="off">
+
+      <label class="conn-label">Student ID <span style="color:var(--red)">*</span></label>
+      <input type="text" id="ns-sid" class="conn-input" placeholder="e.g. 10045" inputmode="numeric" maxlength="5" autocorrect="off">
+
+      <label class="conn-label">Phone</label>
+      <input type="tel" id="ns-phone" class="conn-input" placeholder="e.g. 0771234567">
+
+      <label class="conn-label">Email</label>
+      <input type="email" id="ns-email" class="conn-input" placeholder="e.g. student@email.com">
+
+      <label class="conn-label">Monthly Fee (Rs.)</label>
+      <input type="number" id="ns-fee" class="conn-input" placeholder="5000" value="5000" min="0">
+
+      <label class="conn-label">Joined Date</label>
+      <input type="date" id="ns-joined" class="conn-input">
+
+      <div id="ns-err" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--red);margin-bottom:12px"></div>
+      <div id="ns-ok"  style="display:none;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--green);margin-bottom:12px"></div>
+
+      <button class="btn-export blue" id="ns-btn" onclick="addStudent()" style="width:100%;margin-top:4px">➕ &nbsp; Add Student</button>
+    </div>
+    <div style="height:30px"></div>
   </div>
 
   <!-- STATUS / SYNC TAB (replaces old Export tab) -->
@@ -622,15 +655,16 @@ function tryRestore() {
 // TABS
 // ═══════════════════════════════════════════════════════════
 function switchTab(name) {
-  var tabs = ['attendance','scan','payments','status'];
+  var tabs = ['attendance','scan','payments','addstudent','status'];
   tabs.forEach(function(t, i) {
     document.querySelectorAll('.tab')[i].classList.toggle('active', t === name);
   });
   document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
   if (name !== 'scan') stopScanner();
-  if (name === 'scan')   updateScanBadge();
-  if (name === 'status') renderStatusSummary();
+  if (name === 'scan')        updateScanBadge();
+  if (name === 'status')      renderStatusSummary();
+  if (name === 'addstudent')  clearAddStudentForm();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1034,6 +1068,127 @@ function toast(msg, type) {
   el.classList.add('show');
   clearTimeout(toastT);
   toastT=setTimeout(function(){ el.classList.remove('show'); }, type==='due'?4000:2500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADD STUDENT
+// ═══════════════════════════════════════════════════════════
+function clearAddStudentForm() {
+  ['ns-name','ns-sid','ns-phone','ns-email','ns-fee','ns-joined'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) { if (id === 'ns-fee') el.value = '5000'; else el.value = ''; }
+  });
+  document.getElementById('ns-err').style.display = 'none';
+  document.getElementById('ns-ok').style.display  = 'none';
+  var btn = document.getElementById('ns-btn');
+  if (btn) { btn.disabled = false; btn.innerHTML = '➕ &nbsp; Add Student'; }
+}
+
+async function addStudent() {
+  var name   = (document.getElementById('ns-name').value   || '').trim();
+  var sid    = (document.getElementById('ns-sid').value    || '').trim();
+  var phone  = (document.getElementById('ns-phone').value  || '').trim();
+  var email  = (document.getElementById('ns-email').value  || '').trim();
+  var fee    = parseFloat(document.getElementById('ns-fee').value) || 5000;
+  var joined = (document.getElementById('ns-joined').value || '').trim();
+
+  var errEl = document.getElementById('ns-err');
+  var okEl  = document.getElementById('ns-ok');
+  errEl.style.display = 'none';
+  okEl.style.display  = 'none';
+
+  if (!name) {
+    errEl.textContent   = 'Full name is required.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-name').focus();
+    return;
+  }
+  if (!sid) {
+    errEl.textContent   = 'Student ID is required.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-sid').focus();
+    return;
+  }
+  if (!/^\d{5}$/.test(sid)) {
+    errEl.textContent   = 'Student ID must be exactly 5 digits (e.g. 10045).';
+    errEl.style.display = 'block';
+    document.getElementById('ns-sid').focus();
+    return;
+  }
+
+  var btn = document.getElementById('ns-btn');
+  btn.disabled = true;
+  btn.innerHTML = 'Saving…';
+
+  try {
+    var payload = {
+      name:        name,
+      fee_amount:  fee,
+      active:      true,
+      achievements: ''
+    };
+    if (sid)    payload.student_id  = sid;
+    if (phone)  payload.phone       = phone;
+    if (email)  payload.email       = email;
+    if (joined) payload.joined_date = joined;
+
+    var { data, error } = await sb.from('students').insert([payload]).select();
+
+    if (error) {
+      if (error.code === '23505') {
+        errEl.textContent = 'Student ID "' + sid + '" already exists. Use a different ID.';
+      } else {
+        errEl.textContent = 'Error: ' + error.message;
+      }
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.innerHTML = '➕ &nbsp; Add Student';
+      return;
+    }
+
+    // Success — add to local DATA so they appear immediately without full refresh
+    if (data && data.length > 0) {
+      var newS = data[0];
+      var today = todayISO();
+      var now   = new Date();
+      var mn    = now.getMonth() + 1;
+      var yr    = now.getFullYear();
+      var created = newS.created_at || today;
+      var startDate = new Date(created);
+      var due = [];
+      var cur_mn = startDate.getMonth() + 1;
+      var cur_yr = startDate.getFullYear();
+      while (cur_yr < yr || (cur_yr === yr && cur_mn <= mn)) {
+        var key = newS.id + '_' + cur_mn + '_' + cur_yr;
+        due.push({ month: cur_mn, year: cur_yr, status: 'Pending', amount: fee });
+        payments[key] = 'Pending';
+        cur_mn++;
+        if (cur_mn > 12) { cur_mn = 1; cur_yr++; }
+      }
+      var studentEntry = {
+        id: newS.id, student_id: newS.student_id, name: newS.name,
+        phone: newS.phone, email: newS.email, fee_amount: newS.fee_amount,
+        active: newS.active, created_at: newS.created_at,
+        joined_date: newS.joined_date, achievements: newS.achievements || '',
+        attendance_today: null, due_months: due
+      };
+      if (DATA && DATA.students) {
+        DATA.students.push(studentEntry);
+        DATA.students.sort(function(a,b){ return a.name.localeCompare(b.name); });
+      }
+    }
+
+    okEl.textContent   = '✓ ' + name + ' added successfully!';
+    okEl.style.display = 'block';
+    toast('✅ ' + name + ' added!');
+    clearAddStudentForm();
+
+  } catch(e) {
+    errEl.textContent  = 'Unexpected error: ' + e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = '➕ &nbsp; Add Student';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
