@@ -287,7 +287,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
       <input type="email" id="ns-email" class="conn-input" placeholder="e.g. student@email.com">
 
       <label class="conn-label">Monthly Fee (Rs.)</label>
-      <input type="number" id="ns-fee" class="conn-input" placeholder="5000" value="5000" min="0">
+      <input type="number" id="ns-fee" class="conn-input" placeholder="1000" value="1000" min="0">
 
       <label class="conn-label">Joined Date</label>
       <input type="date" id="ns-joined" class="conn-input">
@@ -1089,7 +1089,7 @@ async function addStudent() {
   var sid    = (document.getElementById('ns-sid').value    || '').trim();
   var phone  = (document.getElementById('ns-phone').value  || '').trim();
   var email  = (document.getElementById('ns-email').value  || '').trim();
-  var fee    = parseFloat(document.getElementById('ns-fee').value) || 5000;
+  var fee    = parseFloat(document.getElementById('ns-fee').value) || 1000;
   var joined = (document.getElementById('ns-joined').value || '').trim();
 
   var errEl = document.getElementById('ns-err');
