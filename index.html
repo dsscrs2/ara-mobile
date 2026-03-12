@@ -9,6 +9,8 @@
 <title>ARA Mobile</title>
 <!-- jsQR: fallback QR decoder for browsers without BarcodeDetector (iPhone Safari) -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<!-- Supabase JS client v2 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root {
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
@@ -21,19 +23,31 @@
 * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
 body { font-family:var(--font); background:var(--bg); color:var(--text); min-height:100vh; overflow-x:hidden; -webkit-text-size-adjust:100%; }
 
-/* ── IMPORT ── */
-#import-screen { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; background:linear-gradient(160deg,#0f172a 0%,#1a1040 100%); }
+/* ── CONNECT / LOADING SCREENS ── */
+#connect-screen, #loading-screen {
+  min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:32px 24px;
+  background:linear-gradient(160deg,#0f172a 0%,#1a1040 100%);
+}
+#loading-screen { display:none; }
 .logo-ring { width:90px; height:90px; border-radius:50%; background:linear-gradient(135deg,#3b82f6,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:20px; box-shadow:0 0 40px rgba(59,130,246,.35); }
-#import-screen h1 { font-size:22px; font-weight:700; text-align:center; margin-bottom:6px; }
+#connect-screen h1, #loading-screen h1 { font-size:22px; font-weight:700; text-align:center; margin-bottom:6px; }
 .sub { color:var(--muted); font-size:14px; text-align:center; margin-bottom:36px; }
 .import-card { width:100%; max-width:380px; background:var(--surf); border:1px solid var(--border); border-radius:var(--r); padding:28px 24px; }
 .import-card h3 { font-size:16px; font-weight:700; margin-bottom:6px; }
 .import-card p  { font-size:13px; color:var(--muted); line-height:1.6; margin-bottom:20px; }
-.file-label { display:block; width:100%; background:var(--accent); color:white; font-family:var(--font); font-size:16px; font-weight:600; padding:15px 20px; border-radius:10px; text-align:center; cursor:pointer; -webkit-appearance:none; user-select:none; transition:opacity .15s; }
+.conn-input { display:block; width:100%; background:var(--surf2); border:2px solid var(--border); border-radius:10px; color:var(--text); font-family:var(--font); font-size:14px; padding:13px 14px; outline:none; -webkit-appearance:none; margin-bottom:12px; }
+.conn-input:focus { border-color:var(--accent); }
+.conn-input::placeholder { color:var(--muted); font-size:13px; }
+.conn-label { font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; display:block; text-transform:uppercase; letter-spacing:.4px; }
+.file-label { display:block; width:100%; background:var(--accent); color:white; font-family:var(--font); font-size:16px; font-weight:600; padding:15px 20px; border-radius:10px; text-align:center; cursor:pointer; -webkit-appearance:none; user-select:none; transition:opacity .15s; border:none; }
 .file-label:active { opacity:.85; }
-#file-input { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; }
-.import-hint { font-size:12px; color:var(--muted); text-align:center; margin-top:12px; }
-#import-err { display:none; margin-top:14px; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.4); border-radius:10px; padding:14px; font-size:13px; color:#fca5a5; line-height:1.7; }
+#connect-err { display:none; margin-top:14px; background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.4); border-radius:10px; padding:14px; font-size:13px; color:#fca5a5; line-height:1.7; }
+.loading-dots { display:flex; gap:8px; justify-content:center; margin-top:20px; }
+.loading-dots span { width:10px; height:10px; border-radius:50%; background:var(--accent); animation:dot 1.2s ease-in-out infinite; }
+.loading-dots span:nth-child(2) { animation-delay:.2s; }
+.loading-dots span:nth-child(3) { animation-delay:.4s; }
+@keyframes dot { 0%,80%,100%{opacity:.2;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
 
 /* ── APP ── */
 #app { display:none; flex-direction:column; min-height:100vh; }
@@ -118,15 +132,17 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 #scan-canvas { display:none; }
 .info-banner { background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--amber); line-height:1.6; margin:10px 12px 0; }
 
-/* ── EXPORT ── */
+/* ── STATUS / SYNC TAB ── */
 .export-card { background:var(--surf); border:1px solid var(--border); border-radius:var(--r); padding:18px; margin:12px 12px 10px; }
 .export-card h3 { font-size:15px; font-weight:700; margin-bottom:5px; }
 .export-card p  { font-size:13px; color:var(--muted); margin-bottom:14px; line-height:1.5; }
 .summary-block  { background:var(--surf2); border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.9; margin-bottom:14px; }
-.btn-export { width:100%; background:linear-gradient(135deg,#059669,#16a34a); color:white; font-family:var(--font); font-size:16px; font-weight:700; padding:15px; border-radius:10px; border:none; cursor:pointer; -webkit-appearance:none; }
+.btn-export { width:100%; color:white; font-family:var(--font); font-size:16px; font-weight:700; padding:15px; border-radius:10px; border:none; cursor:pointer; -webkit-appearance:none; }
+.btn-export.blue   { background:linear-gradient(135deg,#2563eb,#1d4ed8); }
+.btn-export.danger { background:linear-gradient(135deg,#dc2626,#b91c1c); }
 .btn-export:active { opacity:.9; }
-.how-to { background:rgba(59,130,246,.08); border:1px solid rgba(59,130,246,.2); border-radius:10px; padding:14px; font-size:13px; color:var(--muted); line-height:1.7; margin:0 12px; }
-.how-to strong { color:var(--accent); }
+.conn-pill { display:inline-flex; align-items:center; gap:6px; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.3); color:var(--green); border-radius:20px; padding:4px 12px; font-size:12px; font-weight:700; }
+.conn-url { font-size:11px; color:var(--muted); word-break:break-all; margin-top:6px; font-family:var(--mono); }
 
 /* ── MISC ── */
 .no-day { text-align:center; padding:36px 24px; color:var(--muted); font-size:14px; line-height:1.6; }
@@ -139,24 +155,38 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 </head>
 <body>
 
-<!-- IMPORT SCREEN -->
-<div id="import-screen">
+<!-- ═══════════════════════════════════════════════════════
+     CONNECT SCREEN  (replaces old import screen)
+     ═══════════════════════════════════════════════════════ -->
+<div id="connect-screen">
   <div class="logo-ring">🎯</div>
   <h1>Air Rifle Academy</h1>
   <p class="sub">D S Senanayeke College · Mobile Companion</p>
   <div class="import-card">
-    <h3>Import Export File</h3>
-    <p>First export from your laptop:<br>
-       <strong style="color:var(--text)">Settings → 📤 Export for Mobile</strong><br>
-       Send the .json file to your phone, then tap below.</p>
-    <label class="file-label" for="file-input">📂 &nbsp; Choose Export File</label>
-    <input type="file" id="file-input" accept="*/*">
-    <p class="import-hint">ara_mobile_YYYY-MM-DD.json</p>
-    <div id="import-err"></div>
+    <h3>Welcome back</h3>
+    <p style="margin-bottom:18px;color:var(--muted)">Enter your password to continue</p>
+    <label class="conn-label">Password</label>
+    <input type="password" id="login-pw" class="conn-input" placeholder="Enter password"
+           autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="file-label" id="login-btn" onclick="doLogin()">🔓 &nbsp; Login</button>
+    <div id="connect-err"></div>
   </div>
 </div>
 
-<!-- MAIN APP -->
+<!-- ═══════════════════════════════════════════════════════
+     LOADING SCREEN
+     ═══════════════════════════════════════════════════════ -->
+<div id="loading-screen">
+  <div class="logo-ring">🎯</div>
+  <h1>Air Rifle Academy</h1>
+  <p class="sub" id="loading-msg">Connecting…</p>
+  <div class="loading-dots"><span></span><span></span><span></span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MAIN APP
+     ═══════════════════════════════════════════════════════ -->
 <div id="app">
   <div class="topbar">
     <div class="topbar-row">
@@ -168,14 +198,14 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     <div class="tab active" onclick="switchTab('attendance')">📋 Attend.</div>
     <div class="tab"        onclick="switchTab('scan')">📷 Scan</div>
     <div class="tab"        onclick="switchTab('payments')">💰 Pay</div>
-    <div class="tab"        onclick="switchTab('export')">📤 Export</div>
+    <div class="tab"        onclick="switchTab('status')">☁️ Sync</div>
   </div>
 
   <!-- ATTENDANCE -->
   <div class="tab-content active" id="tab-attendance">
     <div class="cards-row">
-      <div class="mini-card"><div class="val" id="a-present" style="color:var(--green)">0</div><div class="lbl">Present</div></div>
-      <div class="mini-card"><div class="val" id="a-absent"  style="color:var(--red)">0</div><div class="lbl">Absent</div></div>
+      <div class="mini-card"><div class="val" id="a-present"  style="color:var(--green)">0</div><div class="lbl">Present</div></div>
+      <div class="mini-card"><div class="val" id="a-absent"   style="color:var(--red)">0</div><div class="lbl">Absent</div></div>
       <div class="mini-card"><div class="val" id="a-unmarked" style="color:var(--amber)">0</div><div class="lbl">Unmarked</div></div>
     </div>
     <div class="section-label">Class Day</div>
@@ -237,20 +267,20 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     <div class="student-list" id="pay-list"></div>
   </div>
 
-  <!-- EXPORT -->
-  <div class="tab-content" id="tab-export">
+  <!-- STATUS / SYNC TAB (replaces old Export tab) -->
+  <div class="tab-content" id="tab-status">
     <div class="export-card">
-      <h3>📤 Export Sync File</h3>
-      <p>Export all changes and send back to the laptop to update the database.</p>
+      <h3>☁️ Live Sync Status</h3>
+      <p>All attendance and payment changes write directly to Supabase — no file transfers needed.</p>
       <div class="summary-block" id="export-summary">Loading…</div>
-      <button class="btn-export" onclick="exportSync()">⬇ Download Sync File</button>
+      <button class="btn-export blue" onclick="refreshData()">🔄 &nbsp; Refresh Data</button>
     </div>
-    <div class="how-to">
-      <strong>How to sync back to laptop:</strong><br>
-      1. Tap <em>Download Sync File</em> above<br>
-      2. Share via WhatsApp or AirDrop<br>
-      3. On laptop → Settings → <strong>Import Mobile Sync</strong><br>
-      4. Select the file — done ✅
+    <div class="export-card">
+      <h3>Connection</h3>
+      <div style="margin-bottom:10px"><span class="conn-pill">● Live</span></div>
+      <div class="conn-url" id="conn-url-display"></div>
+      <div style="height:14px"></div>
+      <button class="btn-export danger" onclick="disconnectSupabase()">🔒 &nbsp; Log Out</button>
     </div>
     <div style="height:30px"></div>
   </div>
@@ -277,10 +307,22 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 <script>
 'use strict';
 
-// ── STATE ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// SUPABASE CONFIG
+// ═══════════════════════════════════════════════════════════
+var SUPABASE_URL = '';
+var SUPABASE_KEY = '';
+var sb = null;
+
+var MONTHS = ['January','February','March','April','May','June',
+              'July','August','September','October','November','December'];
+
+// ═══════════════════════════════════════════════════════════
+// STATE  (unchanged from original)
+// ═══════════════════════════════════════════════════════════
 var DATA       = null;
 var attendance = {};   // { "YYYY-MM-DD": { dbId: "present"|"absent" } }
-var payments   = {};   // { dbId: "Paid"|"Pending" }
+var payments   = {};   // { "id_month_year": "Paid"|"Pending"|"Waived" }
 var classDays  = [];
 var activeDay  = null;
 var expanded   = { att:null, pay:null };
@@ -289,107 +331,327 @@ var scanStream = null, scanRaf = null;
 var lastScanned = null, lastScannedAt = 0;
 var detector   = null;
 
-// ── ERROR DISPLAY ─────────────────────────────────────
-function showErr(msg) {
-  var el = document.getElementById('import-err');
-  el.style.display = 'block';
-  el.innerHTML = msg;
-}
-function clearErr() {
-  var el = document.getElementById('import-err');
-  el.style.display = 'none'; el.innerHTML = '';
+// ═══════════════════════════════════════════════════════════
+// SCREEN HELPERS
+// ═══════════════════════════════════════════════════════════
+function showScreen(id) {
+  ['connect-screen','loading-screen','app'].forEach(function(s) {
+    var el = document.getElementById(s);
+    el.style.display = s === id ? (s === 'app' ? 'flex' : 'flex') : 'none';
+    if (s === 'app' && s === id) el.style.flexDirection = 'column';
+  });
 }
 
-// ── FILE IMPORT ───────────────────────────────────────
-document.getElementById('file-input').addEventListener('change', function(e) {
-  var f = e.target.files && e.target.files[0];
-  if (!f) return;
-  clearErr();
-  var lbl = document.querySelector('.file-label');
-  lbl.textContent = '⏳  Reading…';
-  var r = new FileReader();
-  r.onload = function(ev) {
-    lbl.textContent = '📂  Choose Export File';
-    processRaw(ev.target.result || '');
-  };
-  r.onerror = function() {
-    lbl.textContent = '📂  Choose Export File';
-    showErr('❌ <b>Could not read file.</b><br>Try sending via AirDrop instead of WhatsApp, or re-download.');
-  };
-  r.readAsText(f, 'UTF-8');
-});
+function showLoading(msg) {
+  document.getElementById('loading-msg').textContent = msg || 'Loading…';
+  showScreen('loading-screen');
+}
 
-function processRaw(raw) {
-  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); // strip BOM
-  if (!raw.trim()) { showErr('❌ <b>File is empty.</b><br>Use the ara_mobile_*.json file from Settings → Export for Mobile.'); return; }
-  var d;
-  try { d = JSON.parse(raw); } catch(e) { showErr('❌ <b>Not a valid JSON file.</b><br>' + e.message + '<br>Export from the laptop again: Settings → 📤 Export for Mobile.'); return; }
-  if (!d || !Array.isArray(d.students)) { showErr('❌ <b>Wrong file.</b><br>This does not contain student data.<br>Use: Settings → 📤 Export for Mobile → send <b>ara_mobile_*.json</b> to phone.'); return; }
-  if (d.sync_type === 'mobile_sync') { showErr('❌ <b>Wrong file direction.</b><br>You selected the sync file (ara_sync_*.json).<br>You need the <b>export</b> file (ara_mobile_*.json).'); return; }
-  DATA = d;
-  // try to restore session first, otherwise seed fresh
-  if (!tryRestore()) {
-    payments = {};
-    DATA.students.forEach(function(s) {
-      (s.due_months || []).forEach(function(m) {
-        payments[payKey(s.id, m.month, m.year)] = m.status || 'Pending';
-      });
-    });
-    classDays = []; attendance = {}; activeDay = null;
-  }
-  var dt = new Date(), mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function showConnectScreen() {
+  showScreen('connect-screen');
+  document.getElementById('connect-err').style.display = 'none';
+}
+
+function showApp() {
+  showScreen('app');
+  var dt = new Date();
+  var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   document.getElementById('topbar-date').textContent = dt.getDate() + ' ' + mo[dt.getMonth()] + ' ' + dt.getFullYear();
-  document.getElementById('topbar-meta').textContent = DATA.students.length + ' students · ' + DATA.month_name + ' ' + DATA.year;
-  document.getElementById('import-screen').style.display = 'none';
-  var app = document.getElementById('app');
-  app.style.display = 'flex'; app.style.flexDirection = 'column';
-  // show iOS scan note on iPhone
+  document.getElementById('topbar-meta').textContent = (DATA ? DATA.students.length : 0) + ' students · ' + (DATA ? DATA.month_name + ' ' + DATA.year : '');
+  document.getElementById('conn-url-display').textContent = SUPABASE_URL;
   if (/iP(hone|ad|od)/i.test(navigator.userAgent)) {
     document.getElementById('ios-scan-note').style.display = 'block';
   }
   renderDayBar(); renderAtt(); renderPay();
 }
 
-// ── SESSION STORAGE — works on HTTPS ─────────────────
-var SESSION_KEY = 'ara_v3';
+function showConnectErr(msg) {
+  var el = document.getElementById('connect-err');
+  el.style.display = 'block';
+  el.innerHTML = '❌ ' + msg;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPABASE — CONNECT (hardcoded credentials)
+// ═══════════════════════════════════════════════════════════
+var LOGIN_KEY = 'ara_login_v1';
+
+function initSupabaseClient(url, key) {
+  var factory = window.supabase && window.supabase.createClient;
+  if (!factory) { showConnectErr('Supabase library failed to load. Check your internet connection.'); return false; }
+  sb = factory(url, key);
+  return true;
+}
+
+// SHA-256 using Web Crypto API
+async function sha256hex(str) {
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+}
+
+async function doLogin() {
+  var pw = (document.getElementById('login-pw').value || '').trim();
+  if (!pw) { showConnectErr('Please enter your password.'); return; }
+  var btn = document.getElementById('login-btn');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  try {
+    var hash = await sha256hex(pw);
+    // Fetch stored hash from settings table
+    var url = SUPABASE_URL + '/rest/v1/settings?key=eq.password&select=value';
+    var resp = await fetch(url, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    var data = await resp.json();
+    if (!data || !data.length) { throw new Error('Could not read password from database.'); }
+    var storedHash = data[0].value;
+    if (hash === storedHash) {
+      // Save login session (expires when browser closes)
+      try { sessionStorage.setItem(LOGIN_KEY, '1'); } catch(e) {}
+      showLoading('Loading students…');
+      loadFromSupabase();
+    } else {
+      showConnectErr('Incorrect password. Please try again.');
+      document.getElementById('login-pw').value = '';
+      document.getElementById('login-pw').focus();
+    }
+  } catch(e) {
+    showConnectErr('Error: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = '🔓  Login';
+}
+
+function disconnectSupabase() {
+  if (!confirm('Log out?')) return;
+  try { sessionStorage.removeItem(LOGIN_KEY); } catch(e) {}
+  try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
+  DATA = null; attendance = {}; payments = {}; classDays = []; activeDay = null;
+  stopScanner();
+  showConnectScreen();
+  document.getElementById('login-pw').value = '';
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPABASE — LOAD DATA
+// ═══════════════════════════════════════════════════════════
+async function loadFromSupabase() {
+  try {
+    showLoading('Loading students…');
+    var today = todayISO();
+    var now   = new Date();
+    var mn    = now.getMonth() + 1;
+    var yr    = now.getFullYear();
+
+    // 1. Active students
+    var sRes = await sb.from('students')
+      .select('id, student_id, name, fee_amount, created_at')
+      .eq('active', true)
+      .order('name');
+    if (sRes.error) throw new Error('students: ' + sRes.error.message);
+    var students = sRes.data || [];
+
+    showLoading('Loading attendance…');
+
+    // 2. Today's attendance
+    var aRes = await sb.from('attendance')
+      .select('student_id, status')
+      .eq('date', today);
+    if (aRes.error) throw new Error('attendance: ' + aRes.error.message);
+    var attMap = {};
+    (aRes.data || []).forEach(function(r) { attMap[r.student_id] = r.status; });
+
+    showLoading('Loading payments…');
+
+    // 3. All payments (full history for due_months)
+    var pRes = await sb.from('payments')
+      .select('student_id, month, year, amount, paid, waived');
+    if (pRes.error) throw new Error('payments: ' + pRes.error.message);
+    var payLookup = {};
+    (pRes.data || []).forEach(function(p) {
+      payLookup[p.student_id + '_' + p.month + '_' + p.year] = p;
+    });
+
+    // 4. Build DATA object (same shape as the old JSON export)
+    var studentList = students.map(function(s) {
+      // Determine payment start month (student's join month)
+      var created  = new Date(s.created_at);
+      var startMn  = created.getMonth() + 1;
+      var startYr  = created.getFullYear();
+
+      // Build full due_months list from join date → today
+      var due_months = [];
+      var mi = startMn, yi = startYr;
+      while (yi < yr || (yi === yr && mi <= mn)) {
+        var pKey = s.id + '_' + mi + '_' + yi;
+        var p    = payLookup[pKey];
+        var st   = p ? (p.waived ? 'Waived' : (p.paid ? 'Paid' : 'Pending')) : 'Pending';
+        due_months.push({
+          month:      mi,
+          year:       yi,
+          month_name: MONTHS[mi - 1],
+          amount:     p ? (p.amount || s.fee_amount || 0) : (s.fee_amount || 0),
+          status:     st
+        });
+        mi++;
+        if (mi > 12) { mi = 1; yi++; }
+      }
+
+      // Current month pay status for the badge
+      var curP   = payLookup[s.id + '_' + mn + '_' + yr];
+      var pay_st = curP ? (curP.waived ? 'Waived' : (curP.paid ? 'Paid' : 'Pending')) : 'Pending';
+
+      return {
+        id:               s.id,
+        student_id:       s.student_id || '',
+        name:             s.name,
+        fee_amount:       s.fee_amount || 0,
+        attendance_today: attMap[s.id] || null,
+        payment_status:   pay_st,
+        due_months:       due_months
+      };
+    });
+
+    DATA = {
+      export_type:  'supabase_live',
+      exported_at:  new Date().toISOString(),
+      export_date:  today,
+      month:        mn,
+      year:         yr,
+      month_name:   MONTHS[mn - 1],
+      students:     studentList
+    };
+
+    // Seed local payments state from loaded data
+    payments = {};
+    DATA.students.forEach(function(s) {
+      (s.due_months || []).forEach(function(m) {
+        payments[payKey(s.id, m.month, m.year)] = m.status;
+      });
+    });
+
+    // Seed today's attendance into local state
+    attendance = {};
+    attendance[today] = {};
+    DATA.students.forEach(function(s) {
+      if (s.attendance_today) attendance[today][s.id] = s.attendance_today;
+    });
+
+    // Restore session (classDays, activeDay) if same date
+    tryRestore();
+
+    showApp();
+
+  } catch(err) {
+    console.error('loadFromSupabase error:', err);
+    showConnectErr('Could not load data — ' + (err.message || String(err)) + '<br><br>Check your URL, anon key, and that RLS policies allow access.');
+    showConnectScreen();
+  }
+}
+
+async function refreshData() {
+  stopScanner();
+  showLoading('Refreshing data…');
+  await loadFromSupabase();
+  toast('🔄 Data refreshed');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPABASE — WRITE ATTENDANCE
+// ═══════════════════════════════════════════════════════════
+async function writeAtt(studentId, date, status) {
+  if (!sb) return;
+  try {
+    if (status === null) {
+      var res = await sb.from('attendance')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('date', date);
+      if (res.error) throw res.error;
+    } else {
+      var res = await sb.from('attendance')
+        .upsert(
+          { student_id: studentId, date: date, status: status },
+          { onConflict: 'student_id,date' }
+        );
+      if (res.error) throw res.error;
+    }
+  } catch(e) {
+    console.error('writeAtt error:', e);
+    toast('⚠️ Sync error — saved locally only');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPABASE — WRITE PAYMENT
+// ═══════════════════════════════════════════════════════════
+async function writePay(studentId, month, year, status, amount) {
+  if (!sb) return;
+  try {
+    var res = await sb.from('payments')
+      .upsert({
+        student_id: studentId,
+        month:      month,
+        year:       year,
+        amount:     amount,
+        paid:       status === 'Paid',
+        paid_date:  status === 'Paid' ? new Date().toISOString() : null,
+        waived:     status === 'Waived'
+      }, { onConflict: 'student_id,month,year' });
+    if (res.error) throw res.error;
+  } catch(e) {
+    console.error('writePay error:', e);
+    toast('⚠️ Sync error — saved locally only');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SESSION STORAGE  (saves classDays / activeDay across reload)
+// ═══════════════════════════════════════════════════════════
+var SESSION_KEY = 'ara_v4_session';
 function save() {
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      xd: DATA.export_date,
-      attendance: attendance,
-      payments:   payments,
-      classDays:  classDays,
-      activeDay:  activeDay
+      xd:        DATA ? DATA.export_date : null,
+      classDays: classDays,
+      activeDay: activeDay
     }));
-  } catch(e) { /* silently skip if unavailable */ }
+  } catch(e) {}
 }
 function tryRestore() {
   try {
     var raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return false;
     var s = JSON.parse(raw);
-    if (!s || s.xd !== DATA.export_date) return false;
-    attendance = s.attendance || {};
-    payments   = s.payments   || {};
-    classDays  = s.classDays  || [];
-    activeDay  = s.activeDay  || null;
+    if (!s || !DATA || s.xd !== DATA.export_date) return false;
+    classDays = s.classDays || [];
+    activeDay = s.activeDay || null;
+    // Ensure attendance map has entries for restored days
+    classDays.forEach(function(d) {
+      if (!attendance[d]) attendance[d] = {};
+    });
     return true;
   } catch(e) { return false; }
 }
 
-// ── TABS ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════
 function switchTab(name) {
-  ['attendance','scan','payments','export'].forEach(function(t,i) {
+  var tabs = ['attendance','scan','payments','status'];
+  tabs.forEach(function(t, i) {
     document.querySelectorAll('.tab')[i].classList.toggle('active', t === name);
   });
   document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
   if (name !== 'scan') stopScanner();
   if (name === 'scan')   updateScanBadge();
-  if (name === 'export') renderExportSummary();
+  if (name === 'status') renderStatusSummary();
 }
 
-// ── CLASS DAYS ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// CLASS DAYS
+// ═══════════════════════════════════════════════════════════
 function todayISO() {
   var d = new Date();
   return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
@@ -413,7 +675,6 @@ function closeDateModal() {
   document.getElementById('date-modal').style.display = 'none';
 }
 function onDateInput(val) {
-  // auto-insert dashes: 20260310 → 2026-03-10
   var digits = val.replace(/\D/g, '');
   var fmt = digits;
   if (digits.length > 4) fmt = digits.slice(0,4) + '-' + digits.slice(4);
@@ -437,33 +698,38 @@ function selectDay(d) { activeDay = d; save(); renderDayBar(); renderAtt(); }
 
 function renderDayBar() {
   var bar = document.getElementById('day-bar');
-  bar.innerHTML = classDays.map(function(d) {
-    return '<div class="day-chip' + (d===activeDay?' active':'') + '" onclick="selectDay(\'' + d + '\')">' + fmtDate(d) + '</div>';
-  }).join('') + '<div class="day-chip add-btn" onclick="openDateModal()">+ New Day</div>';
-  var has = activeDay !== null;
-  document.getElementById('no-day-msg').style.display = has ? 'none' : 'block';
-  document.getElementById('att-body').style.display   = has ? 'block' : 'none';
+  var chips = classDays.map(function(d) {
+    return '<div class="day-chip'+(d===activeDay?' active':'')+'" onclick="selectDay(\''+d+'\')">'+fmtDate(d)+'</div>';
+  }).join('');
+  bar.innerHTML = chips + '<div class="day-chip add-btn" onclick="openDateModal()">+ New Day</div>';
+  var hasDays = classDays.length > 0;
+  document.getElementById('no-day-msg').style.display  = hasDays ? 'none' : 'block';
+  document.getElementById('att-body').style.display    = hasDays ? 'block' : 'none';
 }
 
-// ── ATTENDANCE ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// ATTENDANCE — RENDER
+// ═══════════════════════════════════════════════════════════
 function renderAtt() {
   if (!DATA) return;
-  var dm = activeDay ? (attendance[activeDay] || {}) : {};
-  var q  = ((document.getElementById('att-q') || {}).value || '').toLowerCase();
-  var p=0, a=0, u=0;
-  DATA.students.forEach(function(s) { var st=dm[s.id]; if(st==='present')p++; else if(st==='absent')a++; else u++; });
+  var dm  = attendance[activeDay] || {};
+  var q   = ((document.getElementById('att-q') || {}).value || '').toLowerCase();
+  var p=0, a=0;
+  Object.values(dm).forEach(function(v){ if(v==='present')p++; else if(v==='absent')a++; });
   document.getElementById('a-present').textContent  = p;
   document.getElementById('a-absent').textContent   = a;
-  document.getElementById('a-unmarked').textContent = u;
-  if (!activeDay) return;
+  document.getElementById('a-unmarked').textContent = DATA.students.length - p - a;
+
   var list = document.getElementById('att-list');
-  var stus = DATA.students.filter(function(s) { return !q || s.name.toLowerCase().indexOf(q)>=0 || (s.student_id||'').toLowerCase().indexOf(q)>=0; });
+  var stus = DATA.students.filter(function(s) {
+    return !q || s.name.toLowerCase().indexOf(q)>=0 || (s.student_id||'').toLowerCase().indexOf(q)>=0;
+  });
   if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
   list.innerHTML = stus.map(function(s) {
     var st=dm[s.id], cc=st==='present'?'present':st==='absent'?'absent':'', isO=expanded.att===s.id;
     var sl=st==='present'?'Present':st==='absent'?'Absent':'—', sc=st==='present'?'sp':st==='absent'?'sa':'sn';
     var ini=s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
-    return '<div class="student-card '+cc+(isO?' open':'') +'">'
+    return '<div class="student-card '+cc+(isO?' open':'')+'">'
       +'<div class="sc-main" onclick="togExp(\'att\','+s.id+')">'
         +'<div class="sc-av">'+ini+'</div>'
         +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div><div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
@@ -476,8 +742,8 @@ function renderAtt() {
       +'</div></div>';
   }).join('');
 }
+
 function getDueInfo(sid) {
-  // returns { count, label } of pending months for a student
   var s = DATA && DATA.students.filter(function(x){ return x.id === sid; })[0];
   if (!s) return null;
   var pending = (s.due_months || []).filter(function(m) {
@@ -490,41 +756,40 @@ function getDueInfo(sid) {
   return { count: pending.length, label: label };
 }
 
+// ── setAtt: optimistic update → Supabase write ──
 function setAtt(id, val) {
   if (!activeDay) return;
   if (!attendance[activeDay]) attendance[activeDay] = {};
   if (val === null) delete attendance[activeDay][id]; else attendance[activeDay][id] = val;
-  expanded.att = null; save(); renderAtt();
+  expanded.att = null;
+  save(); renderAtt();
+  writeAtt(id, activeDay, val);   // fire-and-forget
   if (val === 'present') {
     var due = getDueInfo(id);
-    if (due) {
-      toast('✅ Present  ·  ⚠️ ' + due.label, 'due');
-    } else {
-      toast('✅ Present');
-    }
+    if (due) toast('✅ Present  ·  ⚠️ ' + due.label, 'due');
+    else     toast('✅ Present');
   } else {
     toast(val === 'absent' ? '❌ Absent' : '↩ Cleared');
   }
 }
+
 function togExp(t, id) { expanded[t] = expanded[t]===id ? null : id; t==='att' ? renderAtt() : renderPay(); }
 
-// ── QR SCANNER ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// QR SCANNER  (unchanged)
+// ═══════════════════════════════════════════════════════════
 function updateScanBadge() {
   var lbl=document.getElementById('scan-day-lbl'), noDay=document.getElementById('scan-no-day'), body=document.getElementById('scan-body');
   if (activeDay) { lbl.textContent=fmtDate(activeDay)+' '+activeDay.slice(0,4); noDay.style.display='none'; body.style.display='block'; }
   else           { noDay.style.display='block'; body.style.display='none'; }
 }
 async function startScanner() {
-  // iOS: unlock audio BEFORE any await — play a real silent buffer synchronously
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    // play a zero-length silent buffer — this is what truly unlocks iOS audio
     var buf = audioCtx.createBuffer(1, 1, 22050);
     var src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    src.connect(audioCtx.destination);
-    src.start(0);
+    src.buffer = buf; src.connect(audioCtx.destination); src.start(0);
   } catch(e) {}
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showScanErr('<b>Camera not supported</b> in this browser. Try Chrome on Android.'); return;
@@ -536,27 +801,20 @@ async function startScanner() {
   vid.srcObject = scanStream; await vid.play();
   document.getElementById('scan-idle').style.display='none';
   document.getElementById('scan-live').style.display='block';
-
-  // Prefer BarcodeDetector (Chrome Android), fall back to jsQR (iPhone Safari)
   if (window.BarcodeDetector) {
     try { detector = new BarcodeDetector({ formats:['qr_code'] }); } catch(e) { detector=null; }
   }
-
   var cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
-
   function scanFrame() {
     if (!scanStream) return;
     if (vid.readyState < 2) { scanRaf=requestAnimationFrame(scanFrame); return; }
     cvs.width=vid.videoWidth; cvs.height=vid.videoHeight;
     ctx.drawImage(vid,0,0);
-
     if (detector) {
-      // BarcodeDetector path (Chrome Android)
       detector.detect(cvs).then(function(codes) {
         if (codes.length) handleQRScan(codes[0].rawValue.trim());
       }).catch(function(){}).finally(function() { if(scanStream) scanRaf=requestAnimationFrame(scanFrame); });
     } else if (window.jsQR) {
-      // jsQR path (iPhone Safari and other browsers)
       var imageData = ctx.getImageData(0,0,cvs.width,cvs.height);
       var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts:'dontInvert' });
       if (code && code.data) handleQRScan(code.data.trim());
@@ -572,24 +830,22 @@ function stopScanner() {
   if (scanRaf)    { cancelAnimationFrame(scanRaf); scanRaf=null; }
   if (scanStream) { scanStream.getTracks().forEach(function(t){t.stop();}); scanStream=null; }
   detector=null;
-  document.getElementById('scan-live').style.display='none';
-  document.getElementById('scan-idle').style.display='block';
-  document.getElementById('scan-err').style.display='none';
+  var live=document.getElementById('scan-live'), idle=document.getElementById('scan-idle');
+  if (live) live.style.display='none';
+  if (idle) idle.style.display='block';
+  var err=document.getElementById('scan-err');
+  if (err) err.style.display='none';
 }
 function handleQRScan(value) {
   if (!DATA || !activeDay) return;
   var now = Date.now();
   if (value === lastScanned && now - lastScannedAt < 4000) return;
   lastScanned = value; lastScannedAt = now;
-
   var s = DATA.students.filter(function(s) {
     return (s.student_id||'').trim().toLowerCase() === value.toLowerCase() || String(s.id) === value;
   })[0];
-
   var frame = document.getElementById('scan-frame');
-
   if (!s) {
-    // Unknown QR — red flash, short pause, resume
     frame.style.borderColor = 'var(--red)';
     frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5), 0 0 24px rgba(239,68,68,.6)';
     if (scanRaf) { cancelAnimationFrame(scanRaf); scanRaf = null; }
@@ -604,34 +860,21 @@ function handleQRScan(value) {
     }, 800);
     return;
   }
-
-  // ── SUCCESSFUL SCAN ──────────────────────────────────
-  // 1. Pause scanning loop immediately
   if (scanRaf) { cancelAnimationFrame(scanRaf); scanRaf = null; }
-
-  // 2. Green frame + glow
   frame.style.borderColor = 'var(--green)';
   frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5), 0 0 32px rgba(34,197,94,.7)';
   frame.style.transform   = 'scale(1.08)';
   frame.style.transition  = 'all .15s ease';
-
-  // 3. Sound + vibrate immediately
   beep();
   if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
-
-  // 4. Mark attendance
   if (!attendance[activeDay]) attendance[activeDay] = {};
   attendance[activeDay][s.id] = 'present';
   save();
-
-  // 5. After 1 second — show result card, update log
+  writeAtt(s.id, activeDay, 'present');   // write to Supabase
   setTimeout(function() {
-    // reset frame
     frame.style.borderColor = 'var(--accent)';
     frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5)';
     frame.style.transform   = 'scale(1)';
-
-    // show result card with fade-in
     var result = document.getElementById('scan-result');
     result.style.opacity   = '0';
     result.style.transform = 'translateY(8px)';
@@ -639,62 +882,45 @@ function handleQRScan(value) {
     result.style.display   = 'block';
     document.getElementById('sr-name').textContent = s.name;
     document.getElementById('sr-id').textContent   = s.student_id || '—';
-
-    // dues info
     var due = getDueInfo(s.id);
     var dueEl = document.getElementById('sr-due');
-    if (due) {
-      dueEl.style.display = 'block';
-      dueEl.textContent   = '⚠️ ' + due.label;
-    } else {
-      dueEl.style.display = 'none';
-    }
-    setTimeout(function() {
-      result.style.opacity   = '1';
-      result.style.transform = 'translateY(0)';
-    }, 20);
-
-    // update scan log
-    var t = new Date(), ts = pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
+    if (due) { dueEl.style.display='block'; dueEl.textContent='⚠️ ' + due.label; }
+    else { dueEl.style.display='none'; }
+    setTimeout(function() { result.style.opacity='1'; result.style.transform='translateY(0)'; }, 20);
+    var t=new Date(), ts=pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
     scanLog.unshift({ name:s.name, time:ts });
-    document.getElementById('scan-log-wrap').style.display = 'block';
-    document.getElementById('scan-log').innerHTML = scanLog.slice(0,20).map(function(r) {
+    document.getElementById('scan-log-wrap').style.display='block';
+    document.getElementById('scan-log').innerHTML=scanLog.slice(0,20).map(function(r) {
       return '<div style="display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:6px">'
         +'<div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>'
         +'<div style="flex:1;font-size:14px;font-weight:600">'+esc(r.name)+'</div>'
         +'<div style="font-size:12px;color:var(--muted)">'+r.time+'</div></div>';
     }).join('');
     renderAtt();
-
-    // 6. After another 1.2 seconds — hide result, resume scanning
     setTimeout(function() {
-      result.style.opacity   = '0';
-      result.style.transform = 'translateY(8px)';
-      setTimeout(function() { result.style.display = 'none'; }, 250);
-
-      // resume scanning loop
+      result.style.opacity='0'; result.style.transform='translateY(8px)';
+      setTimeout(function() { result.style.display='none'; }, 250);
       if (scanStream) {
         var vid=document.getElementById('scan-video'), cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
         (function loop() { if(!scanStream)return; if(vid.readyState<2){scanRaf=requestAnimationFrame(loop);return;} cvs.width=vid.videoWidth;cvs.height=vid.videoHeight;ctx.drawImage(vid,0,0); if(detector){detector.detect(cvs).then(function(c){if(c.length)handleQRScan(c[0].rawValue.trim());}).catch(function(){}).finally(function(){if(scanStream)scanRaf=requestAnimationFrame(loop);});}else if(window.jsQR){var id=ctx.getImageData(0,0,cvs.width,cvs.height);var c=jsQR(id.data,id.width,id.height,{inversionAttempts:'dontInvert'});if(c&&c.data)handleQRScan(c.data.trim());scanRaf=requestAnimationFrame(loop);}})();
       }
     }, 1200);
-
   }, 900);
 }
 
-// ── PAYMENTS ──────────────────────────────────────────
-// payments state: { "studentId_month_year": "Paid"|"Pending" }
-// e.g. { "76_1_2026": "Paid", "76_2_2026": "Pending" }
+// ═══════════════════════════════════════════════════════════
+// PAYMENTS — RENDER
+// ═══════════════════════════════════════════════════════════
 function payKey(sid, mn, yr) { return sid + '_' + mn + '_' + yr; }
 
 function renderPay() {
   if (!DATA) return;
   var q = ((document.getElementById('pay-q') || {}).value || '').toLowerCase();
-  var totalMonths = 0, paidMonths = 0;
+  var totalMonths=0, paidMonths=0;
   DATA.students.forEach(function(s) {
     (s.due_months || []).forEach(function(m) {
       totalMonths++;
-      if ((payments[payKey(s.id, m.month, m.year)] || m.status) === 'Paid') paidMonths++;
+      if ((payments[payKey(s.id,m.month,m.year)]||m.status)==='Paid') paidMonths++;
     });
   });
   document.getElementById('p-paid').textContent    = paidMonths;
@@ -703,7 +929,7 @@ function renderPay() {
 
   var list = document.getElementById('pay-list');
   var stus = DATA.students.filter(function(s) {
-    return !q || s.name.toLowerCase().indexOf(q) >= 0 || (s.student_id||'').toLowerCase().indexOf(q) >= 0;
+    return !q || s.name.toLowerCase().indexOf(q)>=0 || (s.student_id||'').toLowerCase().indexOf(q)>=0;
   });
   if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
 
@@ -711,81 +937,68 @@ function renderPay() {
     var months = s.due_months || [];
     var isO    = expanded.pay === s.id;
     var ini    = s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
-
-    // count pending months for this student
     var pendingCount = months.filter(function(m) {
-      return (payments[payKey(s.id, m.month, m.year)] || m.status) === 'Pending';
+      return (payments[payKey(s.id,m.month,m.year)]||m.status)==='Pending';
     }).length;
     var allPaid = pendingCount === 0;
     var totalAmt = months.filter(function(m) {
-      return (payments[payKey(s.id, m.month, m.year)] || m.status) === 'Pending';
-    }).reduce(function(sum, m) { return sum + (m.amount || 0); }, 0);
-
+      return (payments[payKey(s.id,m.month,m.year)]||m.status)==='Pending';
+    }).reduce(function(sum,m){ return sum+(m.amount||0); }, 0);
     var badge = allPaid
       ? '<div class="sc-st sk">All Paid</div>'
       : '<div class="sc-st sq">'+pendingCount+' unpaid</div>';
-
-    // month rows shown when expanded
     var monthRows = months.map(function(m) {
-      var key    = payKey(s.id, m.month, m.year);
-      var st     = payments[key] || m.status;
-      var isPaid = st === 'Paid';
-      var isWaived = st === 'Waived';
-      var rowColor = isPaid ? 'rgba(34,197,94,.06)' : isWaived ? 'rgba(167,139,250,.06)' : 'rgba(245,158,11,.06)';
-      var badge2   = isPaid ? '<span style="font-size:11px;font-weight:700;color:var(--green)">✅ Paid</span>'
-                   : isWaived ? '<span style="font-size:11px;font-weight:700;color:#a78bfa">🎫 Waived</span>'
-                   : '<span style="font-size:11px;font-weight:700;color:var(--amber)">Pending</span>';
-      var btn = isWaived ? '' : isPaid
-        ? '<button onclick="setPay('+s.id+','+m.month+','+m.year+',\'Pending\')" style="background:var(--surf2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">↩</button>'
-        : '<button onclick="setPay('+s.id+','+m.month+','+m.year+',\'Paid\')" style="background:var(--green);color:white;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">Mark Paid</button>';
+      var key=payKey(s.id,m.month,m.year), st=payments[key]||m.status;
+      var isPaid=st==='Paid', isWaived=st==='Waived';
+      var rowColor=isPaid?'rgba(34,197,94,.06)':isWaived?'rgba(167,139,250,.06)':'rgba(245,158,11,.06)';
+      var badge2=isPaid?'<span style="font-size:11px;font-weight:700;color:var(--green)">✅ Paid</span>'
+                :isWaived?'<span style="font-size:11px;font-weight:700;color:#a78bfa">🎫 Waived</span>'
+                :'<span style="font-size:11px;font-weight:700;color:var(--amber)">Pending</span>';
+      var btn=isWaived?'':isPaid
+        ?'<button onclick="setPay('+s.id+','+m.month+','+m.year+',\'Pending\')" style="background:var(--surf2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">↩</button>'
+        :'<button onclick="setPay('+s.id+','+m.month+','+m.year+',\'Paid\')" style="background:var(--green);color:white;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">Mark Paid</button>';
       return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:'+rowColor+';border-top:1px solid var(--border);">'
         +'<div style="flex:1;font-size:13px;font-weight:600;">'+m.month_name+' '+m.year+'</div>'
         +'<div style="font-size:12px;color:var(--muted);margin-right:4px;">Rs. '+Number(m.amount||0).toLocaleString()+'</div>'
-        +badge2
-        +'<div style="margin-left:4px;">'+btn+'</div>'
-        +'</div>';
+        +badge2+'<div style="margin-left:4px;">'+btn+'</div></div>';
     }).join('');
-
-    // total due footer shown when expanded and has pending
-    var footer = (!allPaid && isO)
-      ? '<div style="display:flex;justify-content:space-between;padding:8px 12px 10px;border-top:1px solid var(--border);background:rgba(245,158,11,.06);">'
+    var footer=(!allPaid&&isO)
+      ?'<div style="display:flex;justify-content:space-between;padding:8px 12px 10px;border-top:1px solid var(--border);background:rgba(245,158,11,.06);">'
         +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Total Due</span>'
-        +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Rs. '+totalAmt.toLocaleString()+'</span>'
-        +'</div>'
-      : '';
-
+        +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Rs. '+totalAmt.toLocaleString()+'</span></div>'
+      :'';
     return '<div class="student-card '+(allPaid?'paid':'')+(isO?' open':'')+'">'
       +'<div class="sc-main" onclick="togExp(\'pay\','+s.id+')">'
         +'<div class="sc-av">'+ini+'</div>'
         +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div>'
         +'<div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
-        +badge
-      +'</div>'
+        +badge+'</div>'
       +(isO ? monthRows + footer : '')
       +'</div>';
   }).join('');
 }
 
+// ── setPay: optimistic update → Supabase write ──
 function setPay(sid, mn, yr, val) {
   payments[payKey(sid, mn, yr)] = val;
   save(); renderPay();
-  toast(val === 'Paid' ? '✅ Marked Paid' : '↩ Marked Pending');
+  var s = DATA.students.filter(function(x){ return x.id===sid; })[0];
+  var m = s && (s.due_months||[]).filter(function(m){ return m.month===mn && m.year===yr; })[0];
+  var amount = (m && m.amount) || (s && s.fee_amount) || 0;
+  writePay(sid, mn, yr, val, amount);   // fire-and-forget
+  toast(val==='Paid' ? '✅ Marked Paid' : '↩ Marked Pending');
 }
 
-// ── EXPORT ────────────────────────────────────────────
-function renderExportSummary() {
+// ═══════════════════════════════════════════════════════════
+// STATUS TAB
+// ═══════════════════════════════════════════════════════════
+function renderStatusSummary() {
   if (!DATA) return;
-  var html = '';
-  if (!classDays.length) { html='<span style="color:var(--amber)">No class days recorded yet.</span>'; }
-  else {
-    classDays.forEach(function(d) {
-      var dm=attendance[d]||{}, p=0, a=0;
-      Object.values(dm).forEach(function(v){if(v==='present')p++;else if(v==='absent')a++;});
-      var u = DATA.students.length - p - a;
-      html += '<b>'+fmtDate(d)+'</b> &nbsp; <span style="color:var(--green)">'+p+'</span> present · <span style="color:var(--red)">'+a+'</span> absent'+(u>0?' · <span style="color:var(--amber)">'+u+'</span> unmarked':'')+'<br>';
-    });
-    html += '<br>';
-  }
+  var today = DATA.export_date;
+  var dm    = attendance[today] || {};
+  var p=0, a=0;
+  Object.values(dm).forEach(function(v){ if(v==='present')p++; else if(v==='absent')a++; });
+  var u = DATA.students.length - p - a;
   var totalMonths=0, paidMonths=0;
   DATA.students.forEach(function(s) {
     (s.due_months||[]).forEach(function(m) {
@@ -793,106 +1006,71 @@ function renderExportSummary() {
       if ((payments[payKey(s.id,m.month,m.year)]||m.status)==='Paid') paidMonths++;
     });
   });
-  html += '<b>Payments</b><br>'
-    +'<span style="color:var(--green)">'+paidMonths+'</span> months paid · <span style="color:var(--amber)">'+(totalMonths-paidMonths)+'</span> pending';
+  var html = '<b>'+DATA.students.length+' students</b> · '+DATA.month_name+' '+DATA.year+'<br>';
+  html += '📅 Today: <span style="color:var(--green)">'+p+'</span> present';
+  html += ' · <span style="color:var(--red)">'+a+'</span> absent';
+  if (u>0) html += ' · <span style="color:var(--amber)">'+u+'</span> unmarked';
+  html += '<br>💰 <span style="color:var(--green)">'+paidMonths+'</span> months paid';
+  html += ' · <span style="color:var(--amber)">'+(totalMonths-paidMonths)+'</span> pending<br>';
+  html += '<br><span style="color:var(--muted);font-size:11px">Last loaded: ';
+  html += new Date(DATA.exported_at).toLocaleTimeString() + '</span>';
   document.getElementById('export-summary').innerHTML = html;
 }
 
-function exportSync() {
-  if (!DATA) return;
-  var attRec = [];
-  classDays.forEach(function(d) {
-    var dm = attendance[d]||{};
-    DATA.students.forEach(function(s){ var st=dm[s.id]||null; if(st) attRec.push({student_id:s.id,date:d,status:st}); });
-  });
-  // one record per month per student
-  var payRec = [];
-  DATA.students.forEach(function(s) {
-    (s.due_months||[]).forEach(function(m) {
-      payRec.push({ student_id:s.id, month:m.month, year:m.year,
-        status: payments[payKey(s.id,m.month,m.year)] || m.status,
-        fee_amount: m.amount || s.fee_amount || 0 });
-    });
-  });
-  var first=classDays[0]||DATA.export_date, last=classDays[classDays.length-1]||DATA.export_date;
-  var filename = 'ara_sync_'+first+'_to_'+last+'.json';
-  var jsonStr = JSON.stringify({
-    sync_type:'mobile_sync', exported_at:new Date().toISOString(), export_date:DATA.export_date,
-    month:DATA.month, year:DATA.year, month_name:DATA.month_name, class_days:classDays,
-    attendance:attRec, payments:payRec
-  }, null, 2);
-  var blob = new Blob([jsonStr], {type:'application/json'});
-  var file = new File([blob], filename, {type:'application/json'});
-  if (navigator.canShare && navigator.canShare({files:[file]})) {
-    navigator.share({ files:[file], title:'ARA Sync File', text:'Sync for '+DATA.month_name+' '+DATA.year })
-      .then(function(){ toast('✅ Shared successfully!'); })
-      .catch(function(e){ if(e.name!=='AbortError') showFallback(jsonStr, filename); });
-    return;
-  }
-  var url=URL.createObjectURL(blob), a=document.createElement('a');
-  a.href=url; a.download=filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  toast('✅ Sync file downloaded!');
-}
-
-function showFallback(jsonStr, filename) {
-  // Last resort: show text in a modal so user can copy it
-  var existing = document.getElementById('export-fallback-modal');
-  if (existing) existing.remove();
-  var modal = document.createElement('div');
-  modal.id = 'export-fallback-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:300;display:flex;flex-direction:column;padding:20px;';
-  modal.innerHTML =
-    '<div style="background:var(--surf);border-radius:14px;padding:20px;flex:1;display:flex;flex-direction:column;overflow:hidden;">'
-    +'<div style="font-size:15px;font-weight:700;margin-bottom:6px">📋 Copy Sync Data</div>'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:12px">Select all text below and copy it.<br>Paste into WhatsApp or Notes and send to laptop.</div>'
-    +'<textarea readonly style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;font-family:var(--mono);resize:none;">'+jsonStr+'</textarea>'
-    +'<div style="display:flex;gap:10px;margin-top:12px;">'
-    +'<button onclick="var t=this.parentNode.parentNode.querySelector(\'textarea\');t.select();document.execCommand(\'copy\');toast(\'✅ Copied!\');" style="flex:1;background:var(--accent);color:white;border:none;border-radius:8px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;">Copy All</button>'
-    +'<button onclick="document.getElementById(\'export-fallback-modal\').remove();" style="flex:.5;background:var(--surf2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;">Close</button>'
-    +'</div></div>';
-  document.body.appendChild(modal);
-}
-
-// ── UTILS ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// UTILS  (unchanged)
+// ═══════════════════════════════════════════════════════════
 var audioCtx = null;
-
 function initAudio() {
-  // Must be called directly from a user tap — iOS requires this
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
   } catch(e) {}
 }
-
 function beep() {
   try {
     if (!audioCtx) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    var osc  = audioCtx.createOscillator();
-    var gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1046, audioCtx.currentTime);
+    var osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type='sine'; osc.frequency.setValueAtTime(1046, audioCtx.currentTime);
     gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.18);
+    osc.start(audioCtx.currentTime); osc.stop(audioCtx.currentTime+0.18);
   } catch(e) {}
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 var toastT;
 function toast(msg, type) {
-  var el = document.getElementById('toast');
-  el.textContent = msg;
-  el.style.borderColor  = type === 'due' ? 'rgba(245,158,11,.5)' : '';
-  el.style.background   = type === 'due' ? '#1c1a0f' : '';
-  el.style.color        = type === 'due' ? 'var(--amber)' : '';
+  var el=document.getElementById('toast');
+  el.textContent=msg;
+  el.style.borderColor = type==='due'?'rgba(245,158,11,.5)':'';
+  el.style.background  = type==='due'?'#1c1a0f':'';
+  el.style.color       = type==='due'?'var(--amber)':'';
   el.classList.add('show');
   clearTimeout(toastT);
-  toastT = setTimeout(function(){ el.classList.remove('show'); }, type === 'due' ? 4000 : 2500);
+  toastT=setTimeout(function(){ el.classList.remove('show'); }, type==='due'?4000:2500);
 }
+
+// ═══════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════
+(function boot() {
+  var url = 'https://yosgysfxsjubkdaoeuze.supabase.co';
+  var key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlvc2d5c2Z4c2p1YmtkYW9ldXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMzIxNzAsImV4cCI6MjA4ODkwODE3MH0.7w7Rh-LwCGY5vfktrkQe1a7yPYupuMAs9nauGayK_8A';
+  SUPABASE_URL = url;
+  SUPABASE_KEY = key;
+  initSupabaseClient(url, key);
+  // If already logged in this session, skip login screen
+  var loggedIn = false;
+  try { loggedIn = sessionStorage.getItem(LOGIN_KEY) === '1'; } catch(e) {}
+  if (loggedIn) {
+    showLoading('Loading students…');
+    loadFromSupabase();
+  } else {
+    showConnectScreen();
+  }
+})();
 </script>
 </body>
 </html>
