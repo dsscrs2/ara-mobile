@@ -607,15 +607,21 @@ async function writeAtt(studentId, date, status) {
   if (!sb) return;
   try {
     var token = await getToken();
+    var headers = {
+      'apikey':        SUPABASE_KEY,
+      'Authorization': 'Bearer ' + token,
+      'Content-Type':  'application/json',
+      'Prefer':        'resolution=merge-duplicates,return=minimal'
+    };
     if (status === null) {
       await fetch(
         SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + studentId + '&date=eq.' + date,
-        { method: 'DELETE', headers: sbHeaders(token) }
+        { method: 'DELETE', headers: headers }
       );
     } else {
-      await fetch(SUPABASE_URL + '/rest/v1/attendance', {
+      await fetch(SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date', {
         method:  'POST',
-        headers: sbHeaders(token),
+        headers: headers,
         body:    JSON.stringify({ student_id: studentId, date: date, status: status })
       });
     }
@@ -632,9 +638,15 @@ async function writePay(studentId, month, year, status, amount) {
   if (!sb) return;
   try {
     var token = await getToken();
-    await fetch(SUPABASE_URL + '/rest/v1/payments', {
+    var headers = {
+      'apikey':        SUPABASE_KEY,
+      'Authorization': 'Bearer ' + token,
+      'Content-Type':  'application/json',
+      'Prefer':        'resolution=merge-duplicates,return=minimal'
+    };
+    await fetch(SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year', {
       method:  'POST',
-      headers: sbHeaders(token),
+      headers: headers,
       body:    JSON.stringify({
         student_id: studentId,
         month:      month,
