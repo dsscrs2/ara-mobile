@@ -1041,7 +1041,6 @@ function resumeScanning() {
   }
   scanRaf = requestAnimationFrame(loop);
 }
-}
 function showScanErr(msg) { var el=document.getElementById('scan-err'); el.style.display='block'; el.textContent=msg; }
 function stopScanner() {
   if (scanRaf)    { cancelAnimationFrame(scanRaf); scanRaf=null; }
