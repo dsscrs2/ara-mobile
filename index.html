@@ -574,24 +574,42 @@ async function refreshData() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// AUTH TOKEN HELPER — fixes iOS Safari session drop
+// ═══════════════════════════════════════════════════════════
+async function getToken() {
+  try {
+    var r = await sb.auth.getSession();
+    return (r.data && r.data.session) ? r.data.session.access_token : SUPABASE_KEY;
+  } catch(e) { return SUPABASE_KEY; }
+}
+
+function sbHeaders(token) {
+  return {
+    'apikey':        SUPABASE_KEY,
+    'Authorization': 'Bearer ' + token,
+    'Content-Type':  'application/json',
+    'Prefer':        'resolution=merge-duplicates,return=minimal'
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
 // SUPABASE — WRITE ATTENDANCE
 // ═══════════════════════════════════════════════════════════
 async function writeAtt(studentId, date, status) {
   if (!sb) return;
   try {
+    var token = await getToken();
     if (status === null) {
-      var res = await sb.from('attendance')
-        .delete()
-        .eq('student_id', studentId)
-        .eq('date', date);
-      if (res.error) throw res.error;
+      await fetch(
+        SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + studentId + '&date=eq.' + date,
+        { method: 'DELETE', headers: sbHeaders(token) }
+      );
     } else {
-      var res = await sb.from('attendance')
-        .upsert(
-          { student_id: studentId, date: date, status: status },
-          { onConflict: 'student_id,date' }
-        );
-      if (res.error) throw res.error;
+      await fetch(SUPABASE_URL + '/rest/v1/attendance', {
+        method:  'POST',
+        headers: sbHeaders(token),
+        body:    JSON.stringify({ student_id: studentId, date: date, status: status })
+      });
     }
   } catch(e) {
     console.error('writeAtt error:', e);
@@ -605,8 +623,11 @@ async function writeAtt(studentId, date, status) {
 async function writePay(studentId, month, year, status, amount) {
   if (!sb) return;
   try {
-    var res = await sb.from('payments')
-      .upsert({
+    var token = await getToken();
+    await fetch(SUPABASE_URL + '/rest/v1/payments', {
+      method:  'POST',
+      headers: sbHeaders(token),
+      body:    JSON.stringify({
         student_id: studentId,
         month:      month,
         year:       year,
@@ -614,8 +635,8 @@ async function writePay(studentId, month, year, status, amount) {
         paid:       status === 'Paid',
         paid_date:  status === 'Paid' ? new Date().toISOString() : null,
         waived:     status === 'Waived'
-      }, { onConflict: 'student_id,month,year' });
-    if (res.error) throw res.error;
+      })
+    });
   } catch(e) {
     console.error('writePay error:', e);
     toast('⚠️ Sync error — saved locally only');
@@ -1132,7 +1153,31 @@ async function addStudent() {
     if (email)  payload.email       = email;
     if (joined) payload.joined_date = joined;
 
-    var { data, error } = await sb.from('students').insert([payload]).select();
+    // Get fresh session token — fixes iOS Safari auth drop issue
+    var sessionRes = await sb.auth.getSession();
+    var token = sessionRes.data && sessionRes.data.session
+                  ? sessionRes.data.session.access_token
+                  : SUPABASE_KEY;
+
+    var insertResp = await fetch(SUPABASE_URL + '/rest/v1/students', {
+      method:  'POST',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': 'Bearer ' + token,
+        'Content-Type':  'application/json',
+        'Prefer':        'return=representation'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    var data  = null;
+    var error = null;
+    if (insertResp.ok) {
+      data = await insertResp.json();
+    } else {
+      var errBody = await insertResp.json().catch(function(){ return {}; });
+      error = { code: errBody.code || '', message: errBody.message || ('HTTP ' + insertResp.status) };
+    }
 
     if (error) {
       if (error.code === '23505') {
