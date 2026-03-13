@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <title>ARA Mobile</title>
 <!-- jsQR: fallback QR decoder for browsers without BarcodeDetector (iPhone Safari) -->
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <!-- Supabase JS client v2 -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root {
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
@@ -213,7 +213,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     <div class="day-bar" id="day-bar"></div>
     <div id="no-day-msg" class="no-day"><div class="big">📅</div>Select a date above to view attendance</div>
     <div id="att-body" style="display:none">
-      <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="att-q" oninput="renderAtt()"></div>
+      <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="att-q"></div>
       <div class="student-list" id="att-list"></div>
     </div>
   </div>
@@ -264,7 +264,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
       <div class="mini-card"><div class="val" id="p-pending" style="color:var(--amber)">0</div><div class="lbl">Pending</div></div>
       <div class="mini-card"><div class="val" id="p-total"   style="color:var(--muted)">0</div><div class="lbl">Total</div></div>
     </div>
-    <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q" oninput="renderPay()"></div>
+    <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q"></div>
     <div class="student-list" id="pay-list"></div>
   </div>
 
@@ -365,6 +365,31 @@ var scanStream = null, scanRaf = null;
 var lastScanned = null, lastScannedAt = 0;
 var detector   = null;
 
+// Login rate limiting (S5)
+var loginAttempts = 0;
+var loginLockUntil = 0;
+
+// Offline queue & connectivity (E1/E3)
+var writeQueue = [];
+var isOnline   = navigator.onLine;
+
+// ═══════════════════════════════════════════════════════════
+// UTILITY HELPERS
+// ═══════════════════════════════════════════════════════════
+function debounce(fn, ms) {
+  var t;
+  return function() { clearTimeout(t); t = setTimeout(fn, ms); };
+}
+
+function fetchWithTimeout(url, options, timeoutMs) {
+  timeoutMs = timeoutMs || 15000;
+  var controller = new AbortController();
+  var id = setTimeout(function() { controller.abort(); }, timeoutMs);
+  options = options || {};
+  options.signal = controller.signal;
+  return fetch(url, options).finally(function() { clearTimeout(id); });
+}
+
 // ═══════════════════════════════════════════════════════════
 // SCREEN HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -402,7 +427,7 @@ function showApp() {
 function showConnectErr(msg) {
   var el = document.getElementById('connect-err');
   el.style.display = 'block';
-  el.innerHTML = '❌ ' + msg;
+  el.textContent = '❌ ' + msg;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -418,18 +443,31 @@ function initSupabaseClient(url, key) {
 }
 
 async function doLogin() {
+  var now = Date.now();
+  if (loginAttempts >= 5 && now < loginLockUntil) {
+    var secs = Math.ceil((loginLockUntil - now) / 1000);
+    showConnectErr('Too many attempts. Try again in ' + secs + ' seconds.');
+    return;
+  }
   var pw = (document.getElementById('login-pw').value || '').trim();
   if (!pw) { showConnectErr('Please enter your password.'); return; }
   var btn = document.getElementById('login-btn');
   btn.disabled = true;
-  btn.innerHTML = 'Checking…';
+  btn.textContent = 'Checking…';
   try {
     var result = await sb.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pw });
     if (result.error) {
-      showConnectErr('Incorrect password. Please try again.');
+      loginAttempts++;
+      if (loginAttempts >= 5) {
+        loginLockUntil = Date.now() + 30000;
+        showConnectErr('Too many failed attempts. Locked for 30 seconds.');
+      } else {
+        showConnectErr('Incorrect password. Please try again. (' + (5 - loginAttempts) + ' attempts left)');
+      }
       document.getElementById('login-pw').value = '';
       document.getElementById('login-pw').focus();
     } else {
+      loginAttempts = 0;
       AUTH_TOKEN = result.data.session.access_token;
       showLoading('Loading students…');
       loadFromSupabase();
@@ -482,9 +520,10 @@ async function loadFromSupabase() {
 
     showLoading('Loading payments…');
 
-    // 3. All payments (full history for due_months)
+    // 3. Payments (filtered to recent years for performance)
     var pRes = await sb.from('payments')
-      .select('student_id, month, year, amount, paid, waived');
+      .select('student_id, month, year, amount, paid, waived')
+      .gte('year', yr - 2);
     if (pRes.error) throw new Error('payments: ' + pRes.error.message);
     var payLookup = {};
     (pRes.data || []).forEach(function(p) {
@@ -563,7 +602,7 @@ async function loadFromSupabase() {
 
   } catch(err) {
     console.error('loadFromSupabase error:', err);
-    showConnectErr('Could not load data — ' + (err.message || String(err)) + '<br><br>Check your URL, anon key, and that RLS policies allow access.');
+    showConnectErr('Could not load data — ' + (err.message || String(err)) + '. Check your URL, anon key, and that RLS policies allow access.');
     showConnectScreen();
   }
 }
@@ -579,7 +618,6 @@ async function refreshData() {
 // AUTH TOKEN HELPER — fixes iOS Safari session drop
 // ═══════════════════════════════════════════════════════════
 async function getToken() {
-  // Use stored token first — avoids iOS Safari localStorage session loss
   if (AUTH_TOKEN) return AUTH_TOKEN;
   try {
     var r = await sb.auth.getSession();
@@ -588,15 +626,20 @@ async function getToken() {
       return AUTH_TOKEN;
     }
   } catch(e) {}
-  return SUPABASE_KEY;
+  // Session expired — redirect to login
+  toast('⚠️ Session expired — please log in again');
+  AUTH_TOKEN = '';
+  DATA = null;
+  showConnectScreen();
+  throw new Error('Session expired');
 }
 
-function sbHeaders(token) {
+function sbHeaders(token, prefer) {
   return {
     'apikey':        SUPABASE_KEY,
     'Authorization': 'Bearer ' + token,
     'Content-Type':  'application/json',
-    'Prefer':        'resolution=merge-duplicates,return=minimal'
+    'Prefer':        prefer || 'resolution=merge-duplicates,return=minimal'
   };
 }
 
@@ -605,29 +648,43 @@ function sbHeaders(token) {
 // ═══════════════════════════════════════════════════════════
 async function writeAtt(studentId, date, status) {
   if (!sb) return;
+  if (!isOnline) {
+    writeQueue.push({ type: 'att', studentId: studentId, date: date, status: status });
+    toast('📡 Offline — will sync when back online');
+    return;
+  }
   try {
     var token = await getToken();
-    var headers = {
-      'apikey':        SUPABASE_KEY,
-      'Authorization': 'Bearer ' + token,
-      'Content-Type':  'application/json',
-      'Prefer':        'resolution=merge-duplicates,return=minimal'
-    };
+    var headers = sbHeaders(token);
+    var resp;
     if (status === null) {
-      await fetch(
-        SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + studentId + '&date=eq.' + date,
+      resp = await fetchWithTimeout(
+        SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + encodeURIComponent(studentId) + '&date=eq.' + encodeURIComponent(date),
         { method: 'DELETE', headers: headers }
       );
     } else {
-      await fetch(SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date', {
+      resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date', {
         method:  'POST',
         headers: headers,
         body:    JSON.stringify({ student_id: studentId, date: date, status: status })
       });
     }
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return {}; });
+      console.error('writeAtt failed:', resp.status, err);
+      toast('⚠️ Sync error: ' + (err.message || 'HTTP ' + resp.status));
+    }
   } catch(e) {
-    console.error('writeAtt error:', e);
-    toast('⚠️ Sync error — saved locally only');
+    if (e.name === 'AbortError') {
+      writeQueue.push({ type: 'att', studentId: studentId, date: date, status: status });
+      toast('⚠️ Request timed out — will retry');
+    } else if (e.message === 'Session expired') {
+      // handled by getToken
+    } else {
+      console.error('writeAtt error:', e);
+      writeQueue.push({ type: 'att', studentId: studentId, date: date, status: status });
+      toast('⚠️ Sync error — will retry when online');
+    }
   }
 }
 
@@ -636,15 +693,15 @@ async function writeAtt(studentId, date, status) {
 // ═══════════════════════════════════════════════════════════
 async function writePay(studentId, month, year, status, amount) {
   if (!sb) return;
+  if (!isOnline) {
+    writeQueue.push({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+    toast('📡 Offline — will sync when back online');
+    return;
+  }
   try {
     var token = await getToken();
-    var headers = {
-      'apikey':        SUPABASE_KEY,
-      'Authorization': 'Bearer ' + token,
-      'Content-Type':  'application/json',
-      'Prefer':        'resolution=merge-duplicates,return=minimal'
-    };
-    await fetch(SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year', {
+    var headers = sbHeaders(token);
+    var resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year', {
       method:  'POST',
       headers: headers,
       body:    JSON.stringify({
@@ -657,11 +714,82 @@ async function writePay(studentId, month, year, status, amount) {
         waived:     status === 'Waived'
       })
     });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return {}; });
+      console.error('writePay failed:', resp.status, err);
+      toast('⚠️ Sync error: ' + (err.message || 'HTTP ' + resp.status));
+    }
   } catch(e) {
-    console.error('writePay error:', e);
-    toast('⚠️ Sync error — saved locally only');
+    if (e.name === 'AbortError') {
+      writeQueue.push({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+      toast('⚠️ Request timed out — will retry');
+    } else if (e.message === 'Session expired') {
+      // handled by getToken
+    } else {
+      console.error('writePay error:', e);
+      writeQueue.push({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+      toast('⚠️ Sync error — will retry when online');
+    }
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// OFFLINE QUEUE — FLUSH ON RECONNECT
+// ═══════════════════════════════════════════════════════════
+async function flushWriteQueue() {
+  if (!isOnline || writeQueue.length === 0) return;
+  var pending = writeQueue.splice(0);
+  var failed = [];
+  for (var i = 0; i < pending.length; i++) {
+    var op = pending[i];
+    try {
+      var token = await getToken();
+      var headers = sbHeaders(token);
+      var resp;
+      if (op.type === 'att') {
+        if (op.status === null) {
+          resp = await fetchWithTimeout(
+            SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + encodeURIComponent(op.studentId) + '&date=eq.' + encodeURIComponent(op.date),
+            { method: 'DELETE', headers: headers }
+          );
+        } else {
+          resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date', {
+            method: 'POST', headers: headers,
+            body: JSON.stringify({ student_id: op.studentId, date: op.date, status: op.status })
+          });
+        }
+      } else if (op.type === 'pay') {
+        resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year', {
+          method: 'POST', headers: headers,
+          body: JSON.stringify({
+            student_id: op.studentId, month: op.month, year: op.year, amount: op.amount,
+            paid: op.status === 'Paid', paid_date: op.status === 'Paid' ? new Date().toISOString() : null,
+            waived: op.status === 'Waived'
+          })
+        });
+      }
+      if (resp && !resp.ok) { failed.push(op); }
+    } catch(e) {
+      failed.push(op);
+    }
+  }
+  writeQueue = failed.concat(writeQueue);
+  if (failed.length === 0 && pending.length > 0) {
+    toast('✅ All queued changes synced');
+  } else if (failed.length > 0) {
+    toast('⚠️ ' + failed.length + ' change(s) failed to sync');
+  }
+}
+
+window.addEventListener('online', function() {
+  isOnline = true;
+  toast('📡 Back online — syncing…');
+  flushWriteQueue();
+});
+window.addEventListener('offline', function() {
+  isOnline = false;
+  toast('📡 You are offline');
+});
 
 // ═══════════════════════════════════════════════════════════
 // SESSION STORAGE  (saves classDays / activeDay across reload)
@@ -733,7 +861,16 @@ function fmtDate(iso) {
   var p = iso.split('-');
   return p[2] + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1];
 }
-function isValidISO(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(new Date(v).getTime()); }
+function isValidISO(v) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  var parts = v.split('-');
+  var y = parseInt(parts[0], 10);
+  var m = parseInt(parts[1], 10);
+  var d = parseInt(parts[2], 10);
+  if (m < 1 || m > 12 || d < 1) return false;
+  var dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
 
 function openDateModal() {
   var inp = document.getElementById('d-input');
@@ -864,11 +1001,11 @@ async function startScanner() {
     src.buffer = buf; src.connect(audioCtx.destination); src.start(0);
   } catch(e) {}
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showScanErr('<b>Camera not supported</b> in this browser. Try Chrome on Android.'); return;
+    showScanErr('Camera not supported in this browser. Try Chrome on Android.'); return;
   }
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
-  } catch(e) { showScanErr('<b>Camera access denied.</b> Allow camera permission and try again.'); return; }
+  } catch(e) { showScanErr('Camera access denied. Allow camera permission and try again.'); return; }
   var vid = document.getElementById('scan-video');
   vid.srcObject = scanStream; await vid.play();
   document.getElementById('scan-idle').style.display='none';
@@ -876,28 +1013,36 @@ async function startScanner() {
   if (window.BarcodeDetector) {
     try { detector = new BarcodeDetector({ formats:['qr_code'] }); } catch(e) { detector=null; }
   }
-  var cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
-  function scanFrame() {
+  resumeScanning();
+}
+
+function resumeScanning() {
+  if (!scanStream) return;
+  var vid = document.getElementById('scan-video');
+  var cvs = document.getElementById('scan-canvas');
+  var ctx = cvs.getContext('2d');
+  function loop() {
     if (!scanStream) return;
-    if (vid.readyState < 2) { scanRaf=requestAnimationFrame(scanFrame); return; }
-    cvs.width=vid.videoWidth; cvs.height=vid.videoHeight;
-    ctx.drawImage(vid,0,0);
+    if (vid.readyState < 2) { scanRaf = requestAnimationFrame(loop); return; }
+    cvs.width = vid.videoWidth; cvs.height = vid.videoHeight;
+    ctx.drawImage(vid, 0, 0);
     if (detector) {
       detector.detect(cvs).then(function(codes) {
         if (codes.length) handleQRScan(codes[0].rawValue.trim());
-      }).catch(function(){}).finally(function() { if(scanStream) scanRaf=requestAnimationFrame(scanFrame); });
+      }).catch(function(){}).finally(function() { if (scanStream) scanRaf = requestAnimationFrame(loop); });
     } else if (window.jsQR) {
-      var imageData = ctx.getImageData(0,0,cvs.width,cvs.height);
-      var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts:'dontInvert' });
+      var imageData = ctx.getImageData(0, 0, cvs.width, cvs.height);
+      var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
       if (code && code.data) handleQRScan(code.data.trim());
-      scanRaf = requestAnimationFrame(scanFrame);
+      scanRaf = requestAnimationFrame(loop);
     } else {
       showScanErr('QR library not loaded. Check your internet connection and reload the page.');
     }
   }
-  scanRaf=requestAnimationFrame(scanFrame);
+  scanRaf = requestAnimationFrame(loop);
 }
-function showScanErr(msg) { var el=document.getElementById('scan-err'); el.style.display='block'; el.innerHTML=msg; }
+}
+function showScanErr(msg) { var el=document.getElementById('scan-err'); el.style.display='block'; el.textContent=msg; }
 function stopScanner() {
   if (scanRaf)    { cancelAnimationFrame(scanRaf); scanRaf=null; }
   if (scanStream) { scanStream.getTracks().forEach(function(t){t.stop();}); scanStream=null; }
@@ -925,10 +1070,7 @@ function handleQRScan(value) {
     setTimeout(function() {
       frame.style.borderColor = 'var(--accent)';
       frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5)';
-      if (scanStream) {
-        var vid=document.getElementById('scan-video'), cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
-        (function loop() { if(!scanStream)return; if(vid.readyState<2){scanRaf=requestAnimationFrame(loop);return;} cvs.width=vid.videoWidth;cvs.height=vid.videoHeight;ctx.drawImage(vid,0,0); if(detector){detector.detect(cvs).then(function(c){if(c.length)handleQRScan(c[0].rawValue.trim());}).catch(function(){}).finally(function(){if(scanStream)scanRaf=requestAnimationFrame(loop);});}else if(window.jsQR){var id=ctx.getImageData(0,0,cvs.width,cvs.height);var c=jsQR(id.data,id.width,id.height,{inversionAttempts:'dontInvert'});if(c&&c.data)handleQRScan(c.data.trim());scanRaf=requestAnimationFrame(loop);}})();
-      }
+      resumeScanning();
     }, 800);
     return;
   }
@@ -972,10 +1114,7 @@ function handleQRScan(value) {
     setTimeout(function() {
       result.style.opacity='0'; result.style.transform='translateY(8px)';
       setTimeout(function() { result.style.display='none'; }, 250);
-      if (scanStream) {
-        var vid=document.getElementById('scan-video'), cvs=document.getElementById('scan-canvas'), ctx=cvs.getContext('2d');
-        (function loop() { if(!scanStream)return; if(vid.readyState<2){scanRaf=requestAnimationFrame(loop);return;} cvs.width=vid.videoWidth;cvs.height=vid.videoHeight;ctx.drawImage(vid,0,0); if(detector){detector.detect(cvs).then(function(c){if(c.length)handleQRScan(c[0].rawValue.trim());}).catch(function(){}).finally(function(){if(scanStream)scanRaf=requestAnimationFrame(loop);});}else if(window.jsQR){var id=ctx.getImageData(0,0,cvs.width,cvs.height);var c=jsQR(id.data,id.width,id.height,{inversionAttempts:'dontInvert'});if(c&&c.data)handleQRScan(c.data.trim());scanRaf=requestAnimationFrame(loop);}})();
-      }
+      resumeScanning();
     }, 1200);
   }, 900);
 }
@@ -1169,6 +1308,18 @@ async function addStudent() {
     document.getElementById('ns-sid').focus();
     return;
   }
+  if (phone && !/^0\d{9}$/.test(phone)) {
+    errEl.textContent   = 'Phone must be 10 digits starting with 0 (e.g. 0771234567).';
+    errEl.style.display = 'block';
+    document.getElementById('ns-phone').focus();
+    return;
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errEl.textContent   = 'Please enter a valid email address.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-email').focus();
+    return;
+  }
 
   var btn = document.getElementById('ns-btn');
   btn.disabled = true;
@@ -1189,14 +1340,9 @@ async function addStudent() {
     // Use stored token — fixes iOS Safari auth drop issue
     var token = await getToken();
 
-    var insertResp = await fetch(SUPABASE_URL + '/rest/v1/students', {
+    var insertResp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/students', {
       method:  'POST',
-      headers: {
-        'apikey':        SUPABASE_KEY,
-        'Authorization': 'Bearer ' + token,
-        'Content-Type':  'application/json',
-        'Prefer':        'return=representation'
-      },
+      headers: sbHeaders(token, 'return=representation'),
       body: JSON.stringify(payload)
     });
 
@@ -1267,14 +1413,14 @@ async function addStudent() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// BOOT
+// BOOT  (waits for DOMContentLoaded so deferred scripts are loaded)
 // ═══════════════════════════════════════════════════════════
-(function boot() {
+function boot() {
   var url = 'https://yosgysfxsjubkdaoeuze.supabase.co';
   var key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlvc2d5c2Z4c2p1YmtkYW9ldXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMzIxNzAsImV4cCI6MjA4ODkwODE3MH0.7w7Rh-LwCGY5vfktrkQe1a7yPYupuMAs9nauGayK_8A';
   SUPABASE_URL = url;
   SUPABASE_KEY = key;
-  initSupabaseClient(url, key);
+  if (!initSupabaseClient(url, key)) return;
   // Check for an existing Supabase Auth session
   sb.auth.getSession().then(function(result) {
     if (result.data && result.data.session) {
@@ -1284,8 +1430,24 @@ async function addStudent() {
     } else {
       showConnectScreen();
     }
+  }).catch(function(e) {
+    console.error('Boot session check failed:', e);
+    showConnectScreen();
   });
-})();
+
+  // Debounced search inputs (O2)
+  var attQ = document.getElementById('att-q');
+  var payQ = document.getElementById('pay-q');
+  if (attQ) attQ.addEventListener('input', debounce(renderAtt, 180));
+  if (payQ) payQ.addEventListener('input', debounce(renderPay, 180));
+}
+
+// Wait for deferred CDN scripts to load before booting
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
 </script>
 </body>
 </html>
