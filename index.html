@@ -211,7 +211,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     </div>
     <div class="section-label">Class Day</div>
     <div class="day-bar" id="day-bar"></div>
-    <div id="no-day-msg" class="no-day"><div class="big">📅</div>Tap <b>+ New Day</b> above to start today's attendance</div>
+    <div id="no-day-msg" class="no-day"><div class="big">📅</div>Select a date above to view attendance</div>
     <div id="att-body" style="display:none">
       <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="att-q" oninput="renderAtt()"></div>
       <div class="student-list" id="att-list"></div>
@@ -665,19 +665,32 @@ function save() {
   } catch(e) {}
 }
 function tryRestore() {
+  var today = todayISO();
   try {
     var raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return false;
-    var s = JSON.parse(raw);
-    if (!s || !DATA || s.xd !== DATA.export_date) return false;
-    classDays = s.classDays || [];
-    activeDay = s.activeDay || null;
-    // Ensure attendance map has entries for restored days
-    classDays.forEach(function(d) {
-      if (!attendance[d]) attendance[d] = {};
-    });
-    return true;
-  } catch(e) { return false; }
+    if (raw) {
+      var s = JSON.parse(raw);
+      if (s && DATA && s.xd === DATA.export_date) {
+        classDays = s.classDays || [];
+        activeDay = s.activeDay || null;
+        classDays.forEach(function(d) {
+          if (!attendance[d]) attendance[d] = {};
+        });
+      }
+    }
+  } catch(e) {}
+  // Always ensure today is in classDays and is the active day on fresh load
+  if (!classDays.includes(today)) {
+    classDays.push(today);
+    classDays.sort();
+  }
+  if (!attendance[today]) attendance[today] = {};
+  // Only override activeDay if not already set to a valid day
+  if (!activeDay || !classDays.includes(activeDay)) {
+    activeDay = today;
+  }
+  save();
+  return true;
 }
 
 // ═══════════════════════════════════════════════════════════
