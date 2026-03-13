@@ -64,7 +64,9 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 
 /* ── COUNTERS ── */
 .cards-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:12px 12px 0; }
-.mini-card { background:var(--surf); border:1px solid var(--border); border-radius:12px; padding:10px 8px; text-align:center; }
+.mini-card { background:var(--surf); border:1px solid var(--border); border-radius:12px; padding:10px 8px; text-align:center; cursor:pointer; user-select:none; transition:border-color .15s, background .15s; -webkit-tap-highlight-color:transparent; }
+.mini-card:active { opacity:.85; }
+.mini-card.filter-on { border-color:var(--accent); background:var(--surf2); }
 .mini-card .val { font-size:22px; font-weight:700; line-height:1; }
 .mini-card .lbl { font-size:11px; color:var(--muted); margin-top:4px; }
 
@@ -205,9 +207,9 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
   <!-- ATTENDANCE -->
   <div class="tab-content active" id="tab-attendance">
     <div class="cards-row">
-      <div class="mini-card"><div class="val" id="a-present"  style="color:var(--green)">0</div><div class="lbl">Present</div></div>
-      <div class="mini-card"><div class="val" id="a-absent"   style="color:var(--red)">0</div><div class="lbl">Absent</div></div>
-      <div class="mini-card"><div class="val" id="a-unmarked" style="color:var(--amber)">0</div><div class="lbl">Unmarked</div></div>
+      <div class="mini-card" id="fc-present"  onclick="toggleAttFilter('present')"><div class="val" id="a-present"  style="color:var(--green)">0</div><div class="lbl">Present</div></div>
+      <div class="mini-card" id="fc-absent"   onclick="toggleAttFilter('absent')"><div class="val" id="a-absent"   style="color:var(--red)">0</div><div class="lbl">Absent</div></div>
+      <div class="mini-card" id="fc-unmarked" onclick="toggleAttFilter('unmarked')"><div class="val" id="a-unmarked" style="color:var(--amber)">0</div><div class="lbl">Unmarked</div></div>
     </div>
     <div class="section-label">Class Day</div>
     <div class="day-bar" id="day-bar"></div>
@@ -260,9 +262,9 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
   <!-- PAYMENTS -->
   <div class="tab-content" id="tab-payments">
     <div class="cards-row">
-      <div class="mini-card"><div class="val" id="p-paid"    style="color:var(--green)">0</div><div class="lbl">Paid</div></div>
-      <div class="mini-card"><div class="val" id="p-pending" style="color:var(--amber)">0</div><div class="lbl">Pending</div></div>
-      <div class="mini-card"><div class="val" id="p-total"   style="color:var(--muted)">0</div><div class="lbl">Total</div></div>
+      <div class="mini-card" id="fc-paid"    onclick="togglePayFilter('paid')"><div class="val" id="p-paid"    style="color:var(--green)">0</div><div class="lbl">Paid</div></div>
+      <div class="mini-card" id="fc-pending" onclick="togglePayFilter('pending')"><div class="val" id="p-pending" style="color:var(--amber)">0</div><div class="lbl">Pending</div></div>
+      <div class="mini-card" id="fc-total"   onclick="togglePayFilter(null)"><div class="val" id="p-total"   style="color:var(--muted)">0</div><div class="lbl">Total</div></div>
     </div>
     <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q"></div>
     <div class="student-list" id="pay-list"></div>
@@ -372,6 +374,10 @@ var loginLockUntil = 0;
 // Offline queue & connectivity (E1/E3)
 var writeQueue = [];
 var isOnline   = navigator.onLine;
+
+// Card filter state
+var attFilter = null;  // null | 'present' | 'absent' | 'unmarked'
+var payFilter = null;  // null | 'paid' | 'pending'
 
 // ═══════════════════════════════════════════════════════════
 // UTILITY HELPERS
@@ -917,6 +923,20 @@ function renderDayBar() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ATTENDANCE — FILTER TOGGLE
+// ═══════════════════════════════════════════════════════════
+function toggleAttFilter(type) {
+  attFilter = attFilter === type ? null : type;
+  renderAtt();
+}
+function updateAttFilterUI() {
+  ['present','absent','unmarked'].forEach(function(f) {
+    var el = document.getElementById('fc-' + f);
+    if (el) el.classList.toggle('filter-on', attFilter === f);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 // ATTENDANCE — RENDER
 // ═══════════════════════════════════════════════════════════
 function renderAtt() {
@@ -928,10 +948,18 @@ function renderAtt() {
   document.getElementById('a-present').textContent  = p;
   document.getElementById('a-absent').textContent   = a;
   document.getElementById('a-unmarked').textContent = DATA.students.length - p - a;
+  updateAttFilterUI();
 
   var list = document.getElementById('att-list');
   var stus = DATA.students.filter(function(s) {
-    return !q || s.name.toLowerCase().indexOf(q)>=0 || (s.student_id||'').toLowerCase().indexOf(q)>=0;
+    if (q && s.name.toLowerCase().indexOf(q)<0 && (s.student_id||'').toLowerCase().indexOf(q)<0) return false;
+    if (attFilter) {
+      var st = dm[s.id];
+      if (attFilter === 'present')  return st === 'present';
+      if (attFilter === 'absent')   return st === 'absent';
+      if (attFilter === 'unmarked') return !st;
+    }
+    return true;
   });
   if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
   list.innerHTML = stus.map(function(s) {
@@ -1120,6 +1148,22 @@ function handleQRScan(value) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// PAYMENTS — FILTER TOGGLE
+// ═══════════════════════════════════════════════════════════
+function togglePayFilter(type) {
+  payFilter = payFilter === type ? null : type;
+  renderPay();
+}
+function updatePayFilterUI() {
+  ['paid','pending'].forEach(function(f) {
+    var el = document.getElementById('fc-' + f);
+    if (el) el.classList.toggle('filter-on', payFilter === f);
+  });
+  var totalEl = document.getElementById('fc-total');
+  if (totalEl) totalEl.classList.remove('filter-on');
+}
+
+// ═══════════════════════════════════════════════════════════
 // PAYMENTS — RENDER
 // ═══════════════════════════════════════════════════════════
 function payKey(sid, mn, yr) { return sid + '_' + mn + '_' + yr; }
@@ -1127,20 +1171,29 @@ function payKey(sid, mn, yr) { return sid + '_' + mn + '_' + yr; }
 function renderPay() {
   if (!DATA) return;
   var q = ((document.getElementById('pay-q') || {}).value || '').toLowerCase();
-  var totalMonths=0, paidMonths=0;
+  var curMn = DATA.month, curYr = DATA.year;
+  var paidNow=0, pendingNow=0;
   DATA.students.forEach(function(s) {
-    (s.due_months || []).forEach(function(m) {
-      totalMonths++;
-      if ((payments[payKey(s.id,m.month,m.year)]||m.status)==='Paid') paidMonths++;
-    });
+    var key = payKey(s.id, curMn, curYr);
+    var st  = payments[key] || 'Pending';
+    if (st === 'Paid') paidNow++; else if (st === 'Pending') pendingNow++;
   });
-  document.getElementById('p-paid').textContent    = paidMonths;
-  document.getElementById('p-pending').textContent = totalMonths - paidMonths;
-  document.getElementById('p-total').textContent   = totalMonths;
+  document.getElementById('p-paid').textContent    = paidNow;
+  document.getElementById('p-pending').textContent = pendingNow;
+  document.getElementById('p-total').textContent   = DATA.students.length;
+  updatePayFilterUI();
 
   var list = document.getElementById('pay-list');
   var stus = DATA.students.filter(function(s) {
-    return !q || s.name.toLowerCase().indexOf(q)>=0 || (s.student_id||'').toLowerCase().indexOf(q)>=0;
+    if (q && s.name.toLowerCase().indexOf(q)<0 && (s.student_id||'').toLowerCase().indexOf(q)<0) return false;
+    if (payFilter) {
+      var hasPending = (s.due_months||[]).some(function(m) {
+        return (payments[payKey(s.id,m.month,m.year)]||m.status)==='Pending';
+      });
+      if (payFilter === 'paid')    return !hasPending;
+      if (payFilter === 'pending') return hasPending;
+    }
+    return true;
   });
   if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
 
