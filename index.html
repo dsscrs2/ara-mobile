@@ -1097,7 +1097,7 @@ function toast(msg, type) {
 function clearAddStudentForm() {
   ['ns-name','ns-sid','ns-phone','ns-email','ns-fee','ns-joined'].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el) { if (id === 'ns-fee') el.value = '5000'; else el.value = ''; }
+    if (el) { if (id === 'ns-fee') el.value = '1000'; else el.value = ''; }
   });
   document.getElementById('ns-err').style.display = 'none';
   document.getElementById('ns-ok').style.display  = 'none';
