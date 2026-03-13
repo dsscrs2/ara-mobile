@@ -1055,6 +1055,7 @@ function stopScanner() {
 function handleQRScan(value) {
   if (!DATA || !activeDay) return;
   var now = Date.now();
+  if (now - lastScannedAt < 1500) return;               // universal cooldown between any two scans
   if (value === lastScanned && now - lastScannedAt < 4000) return;
   lastScanned = value; lastScannedAt = now;
   var s = DATA.students.filter(function(s) {
