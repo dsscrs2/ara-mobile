@@ -345,6 +345,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 // ═══════════════════════════════════════════════════════════
 var SUPABASE_URL = '';
 var SUPABASE_KEY = '';
+var AUTH_TOKEN   = '';   // set at login, used for all writes
 var sb = null;
 
 var MONTHS = ['January','February','March','April','May','June',
@@ -429,6 +430,7 @@ async function doLogin() {
       document.getElementById('login-pw').value = '';
       document.getElementById('login-pw').focus();
     } else {
+      AUTH_TOKEN = result.data.session.access_token;
       showLoading('Loading students…');
       loadFromSupabase();
     }
@@ -577,10 +579,16 @@ async function refreshData() {
 // AUTH TOKEN HELPER — fixes iOS Safari session drop
 // ═══════════════════════════════════════════════════════════
 async function getToken() {
+  // Use stored token first — avoids iOS Safari localStorage session loss
+  if (AUTH_TOKEN) return AUTH_TOKEN;
   try {
     var r = await sb.auth.getSession();
-    return (r.data && r.data.session) ? r.data.session.access_token : SUPABASE_KEY;
-  } catch(e) { return SUPABASE_KEY; }
+    if (r.data && r.data.session) {
+      AUTH_TOKEN = r.data.session.access_token;
+      return AUTH_TOKEN;
+    }
+  } catch(e) {}
+  return SUPABASE_KEY;
 }
 
 function sbHeaders(token) {
@@ -1153,11 +1161,8 @@ async function addStudent() {
     if (email)  payload.email       = email;
     if (joined) payload.joined_date = joined;
 
-    // Get fresh session token — fixes iOS Safari auth drop issue
-    var sessionRes = await sb.auth.getSession();
-    var token = sessionRes.data && sessionRes.data.session
-                  ? sessionRes.data.session.access_token
-                  : SUPABASE_KEY;
+    // Use stored token — fixes iOS Safari auth drop issue
+    var token = await getToken();
 
     var insertResp = await fetch(SUPABASE_URL + '/rest/v1/students', {
       method:  'POST',
@@ -1248,6 +1253,7 @@ async function addStudent() {
   // Check for an existing Supabase Auth session
   sb.auth.getSession().then(function(result) {
     if (result.data && result.data.session) {
+      AUTH_TOKEN = result.data.session.access_token;
       showLoading('Loading students…');
       loadFromSupabase();
     } else {
