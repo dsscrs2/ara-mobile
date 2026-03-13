@@ -1205,7 +1205,7 @@ async function addStudent() {
       var cur_yr = startDate.getFullYear();
       while (cur_yr < yr || (cur_yr === yr && cur_mn <= mn)) {
         var key = newS.id + '_' + cur_mn + '_' + cur_yr;
-        due.push({ month: cur_mn, year: cur_yr, status: 'Pending', amount: fee });
+        due.push({ month: cur_mn, year: cur_yr, month_name: MONTHS[cur_mn - 1], status: 'Pending', amount: fee });
         payments[key] = 'Pending';
         cur_mn++;
         if (cur_mn > 12) { cur_mn = 1; cur_yr++; }
