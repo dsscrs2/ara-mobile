@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: https://cdn.jsdelivr.net https://yssmwhsjxrhoodrzbead.supabase.co; connect-src 'self' https://yssmwhsjxrhoodrzbead.supabase.co wss://yssmwhsjxrhoodrzbead.supabase.co;">
 <title>ARA Mobile</title>
 <!-- jsQR: fallback QR decoder for browsers without BarcodeDetector (iPhone Safari) -->
 <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -144,6 +145,10 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 .btn-export.danger { background:linear-gradient(135deg,#dc2626,#b91c1c); }
 .btn-export:active { opacity:.9; }
 .conn-pill { display:inline-flex; align-items:center; gap:6px; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.3); color:var(--green); border-radius:20px; padding:4px 12px; font-size:12px; font-weight:700; }
+#topbar-status { display:inline-flex; align-items:center; gap:5px; border-radius:20px; padding:3px 9px; font-size:11px; font-weight:700; border:1px solid; transition:background .3s,color .3s,border-color .3s; }
+#topbar-status.live   { background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.3); color:var(--green); }
+#topbar-status.offline{ background:rgba(239,68,68,.12);  border-color:rgba(239,68,68,.35); color:#fca5a5; }
+#topbar-status .dot   { width:6px; height:6px; border-radius:50%; background:currentColor; }
 .conn-url { font-size:11px; color:var(--muted); word-break:break-all; margin-top:6px; font-family:var(--mono); }
 
 /* ── MISC ── */
@@ -153,6 +158,12 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 .empty .big { font-size:36px; margin-bottom:10px; }
 .toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%); background:var(--surf); border:1px solid var(--border); color:var(--text); font-size:14px; font-weight:500; padding:10px 20px; border-radius:100px; box-shadow:0 8px 32px rgba(0,0,0,.5); z-index:999; opacity:0; transition:opacity .2s; white-space:nowrap; pointer-events:none; }
 .toast.show { opacity:1; }
+
+/* ── OFFLINE BANNER ── */
+#offline-banner { background:rgba(239,68,68,.13); border-bottom:1px solid rgba(239,68,68,.4); color:#fca5a5; font-size:13px; font-weight:600; padding:7px 16px; text-align:center; display:none; letter-spacing:.1px; }
+
+/* ── SYNC INDICATOR in topbar ── */
+#sync-indicator { font-size:11px; color:var(--amber); font-weight:600; animation:dot 1s ease-in-out infinite; display:none; }
 </style>
 </head>
 <body>
@@ -166,7 +177,11 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
   <p class="sub">D S Senanayeke College · Mobile Companion</p>
   <div class="import-card">
     <h3>Welcome back</h3>
-    <p style="margin-bottom:18px;color:var(--muted)">Enter your password to continue</p>
+    <p style="margin-bottom:18px;color:var(--muted)">Enter your credentials to continue</p>
+    <label class="conn-label">Email</label>
+    <input type="email" id="login-email" class="conn-input" placeholder="Enter admin email"
+           autocomplete="username"
+           onkeydown="if(event.key==='Enter')document.getElementById('login-pw').focus()">
     <label class="conn-label">Password</label>
     <input type="password" id="login-pw" class="conn-input" placeholder="Enter password"
            autocomplete="current-password"
@@ -193,7 +208,15 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
   <div class="topbar">
     <div class="topbar-row">
       <div><h2>🎯 Air Rifle Academy</h2><div class="meta" id="topbar-meta"></div></div>
-      <div class="date-badge" id="topbar-date"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="sync-indicator">⟳ Syncing…</span>
+        <span id="topbar-status" class="live"><span class="dot"></span>Live</span>
+        <div class="date-badge" id="topbar-date"></div>
+        <button id="topbar-logout" onclick="disconnectSupabase()" title="Log out"
+          style="background:transparent;border:1px solid var(--border);border-radius:8px;
+                 color:var(--muted);font-size:13px;padding:4px 9px;cursor:pointer;
+                 font-family:var(--font);line-height:1;-webkit-appearance:none;">🔒</button>
+      </div>
     </div>
   </div>
   <div class="tabbar">
@@ -203,6 +226,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
     <div class="tab"        onclick="switchTab('addstudent')">➕ Add</div>
     <div class="tab"        onclick="switchTab('status')">☁️ Sync</div>
   </div>
+  <div id="offline-banner">📡 Offline — changes will sync when reconnected</div>
 
   <!-- ATTENDANCE -->
   <div class="tab-content active" id="tab-attendance">
@@ -277,12 +301,12 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Student will be added to Supabase immediately.</p>
 
       <label class="conn-label">Full Name <span style="color:var(--red)">*</span></label>
-      <input type="text" id="ns-name" class="conn-input" placeholder="e.g. Kavindu Perera" autocorrect="off">
+      <input type="text" id="ns-name" class="conn-input" placeholder="e.g. Kavindu Perera" autocorrect="off" maxlength="80">
 
       <label class="conn-label">Student ID <span style="color:var(--red)">*</span></label>
       <input type="text" id="ns-sid" class="conn-input" placeholder="e.g. 10045" inputmode="numeric" maxlength="5" autocorrect="off">
 
-      <label class="conn-label">Phone</label>
+      <label class="conn-label">Phone <span style="color:var(--red)">*</span></label>
       <input type="tel" id="ns-phone" class="conn-input" placeholder="e.g. 0771234567">
 
       <label class="conn-label">Email</label>
@@ -309,6 +333,7 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
       <p>All attendance and payment changes write directly to Supabase — no file transfers needed.</p>
       <div class="summary-block" id="export-summary">Loading…</div>
       <button class="btn-export blue" onclick="refreshData()">🔄 &nbsp; Refresh Data</button>
+      <div id="sync-queue-area" style="margin-top:10px"></div>
     </div>
     <div class="export-card">
       <h3>Connection</h3>
@@ -374,6 +399,28 @@ var loginLockUntil = 0;
 // Offline queue & connectivity (E1/E3)
 var writeQueue = [];
 var isOnline   = navigator.onLine;
+var syncCount  = 0;           // number of in-flight sync requests
+var currentUserEmail = '';    // set at login, used for activity logging
+
+// Queue persistence keys
+var QUEUE_KEY = 'ara_v4_writeQueue';
+function saveQueue() {
+  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(writeQueue)); } catch(e) {}
+}
+function loadQueue() {
+  try {
+    var raw = localStorage.getItem(QUEUE_KEY);
+    if (raw) { var q = JSON.parse(raw); if (Array.isArray(q)) writeQueue = q; }
+  } catch(e) {}
+}
+function queueWrite(op) { writeQueue.push(op); saveQueue(); }
+
+// Sync indicator helpers
+function setSyncing(delta) {
+  syncCount = Math.max(0, syncCount + delta);
+  var el = document.getElementById('sync-indicator');
+  if (el) el.style.display = syncCount > 0 ? 'inline' : 'none';
+}
 
 // Card filter state
 var attFilter = null;  // null | 'present' | 'absent' | 'unmarked'
@@ -427,6 +474,7 @@ function showApp() {
   if (/iP(hone|ad|od)/i.test(navigator.userAgent)) {
     document.getElementById('ios-scan-note').style.display = 'block';
   }
+  updateOfflineBanner();
   renderDayBar(); renderAtt(); renderPay();
 }
 
@@ -435,11 +483,20 @@ function showConnectErr(msg) {
   el.style.display = 'block';
   el.textContent = '❌ ' + msg;
 }
+function showBootError(msg) {
+  showConnectScreen();
+  var el = document.getElementById('connect-err');
+  el.style.display = 'block';
+  el.innerHTML = '❌ ' + esc(msg)
+    + '<br><br><button onclick="location.reload()" style="background:var(--accent);color:white;border:none;'
+    + 'border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)">'
+    + '🔄 Reload</button>';
+}
 
 // ═══════════════════════════════════════════════════════════
 // SUPABASE — AUTH LOGIN
 // ═══════════════════════════════════════════════════════════
-var ADMIN_EMAIL = 'admin@ara.com';
+var ADMIN_EMAIL = ''; // set from login form input at runtime
 
 function initSupabaseClient(url, key) {
   var factory = window.supabase && window.supabase.createClient;
@@ -455,8 +512,11 @@ async function doLogin() {
     showConnectErr('Too many attempts. Try again in ' + secs + ' seconds.');
     return;
   }
+  var email = (document.getElementById('login-email').value || '').trim();
+  if (!email) { showConnectErr('Please enter your email.'); return; }
   var pw = (document.getElementById('login-pw').value || '').trim();
   if (!pw) { showConnectErr('Please enter your password.'); return; }
+  ADMIN_EMAIL = email;
   var btn = document.getElementById('login-btn');
   btn.disabled = true;
   btn.textContent = 'Checking…';
@@ -475,8 +535,12 @@ async function doLogin() {
     } else {
       loginAttempts = 0;
       AUTH_TOKEN = result.data.session.access_token;
+      currentUserEmail = (result.data.session.user && result.data.session.user.email) || ADMIN_EMAIL;
       showLoading('Loading students…');
-      loadFromSupabase();
+      loadFromSupabase().then(function() {
+        logActivity('login', currentUserEmail);
+        if (writeQueue.length > 0 && isOnline) flushWriteQueue();
+      });
     }
   } catch(e) {
     showConnectErr('Error: ' + e.message);
@@ -487,12 +551,17 @@ async function doLogin() {
 
 async function disconnectSupabase() {
   if (!confirm('Log out?')) return;
+  try { logActivity('logout', currentUserEmail); } catch(e) {}
   try { await sb.auth.signOut(); } catch(e) {}
   try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
+  try { localStorage.removeItem(QUEUE_KEY); } catch(e) {}
   DATA = null; attendance = {}; payments = {}; classDays = []; activeDay = null;
+  writeQueue = []; currentUserEmail = ''; AUTH_TOKEN = '';
   stopScanner();
   showConnectScreen();
   document.getElementById('login-pw').value = '';
+  document.getElementById('login-email').value = '';
+  ADMIN_EMAIL = '';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -655,10 +724,11 @@ function sbHeaders(token, prefer) {
 async function writeAtt(studentId, date, status) {
   if (!sb) return;
   if (!isOnline) {
-    writeQueue.push({ type: 'att', studentId: studentId, date: date, status: status });
+    queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
     toast('📡 Offline — will sync when back online');
     return;
   }
+  setSyncing(1);
   try {
     var token = await getToken();
     var headers = sbHeaders(token);
@@ -682,15 +752,17 @@ async function writeAtt(studentId, date, status) {
     }
   } catch(e) {
     if (e.name === 'AbortError') {
-      writeQueue.push({ type: 'att', studentId: studentId, date: date, status: status });
+      queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
       toast('⚠️ Request timed out — will retry');
     } else if (e.message === 'Session expired') {
       // handled by getToken
     } else {
       console.error('writeAtt error:', e);
-      writeQueue.push({ type: 'att', studentId: studentId, date: date, status: status });
+      queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
       toast('⚠️ Sync error — will retry when online');
     }
+  } finally {
+    setSyncing(-1);
   }
 }
 
@@ -700,10 +772,11 @@ async function writeAtt(studentId, date, status) {
 async function writePay(studentId, month, year, status, amount) {
   if (!sb) return;
   if (!isOnline) {
-    writeQueue.push({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+    queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
     toast('📡 Offline — will sync when back online');
     return;
   }
+  setSyncing(1);
   try {
     var token = await getToken();
     var headers = sbHeaders(token);
@@ -727,15 +800,17 @@ async function writePay(studentId, month, year, status, amount) {
     }
   } catch(e) {
     if (e.name === 'AbortError') {
-      writeQueue.push({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+      queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
       toast('⚠️ Request timed out — will retry');
     } else if (e.message === 'Session expired') {
       // handled by getToken
     } else {
       console.error('writePay error:', e);
-      writeQueue.push({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+      queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
       toast('⚠️ Sync error — will retry when online');
     }
+  } finally {
+    setSyncing(-1);
   }
 }
 
@@ -780,20 +855,34 @@ async function flushWriteQueue() {
     }
   }
   writeQueue = failed.concat(writeQueue);
+  saveQueue();
   if (failed.length === 0 && pending.length > 0) {
     toast('✅ All queued changes synced');
+    renderStatusSummary();
   } else if (failed.length > 0) {
     toast('⚠️ ' + failed.length + ' change(s) failed to sync');
+    renderStatusSummary();
   }
 }
 
+function updateOfflineBanner() {
+  var el = document.getElementById('offline-banner');
+  if (el) el.style.display = isOnline ? 'none' : 'block';
+  var pill = document.getElementById('topbar-status');
+  if (pill) {
+    pill.className = isOnline ? 'live' : 'offline';
+    pill.innerHTML = '<span class="dot"></span>' + (isOnline ? 'Live' : 'Offline');
+  }
+}
 window.addEventListener('online', function() {
   isOnline = true;
+  updateOfflineBanner();
   toast('📡 Back online — syncing…');
   flushWriteQueue();
 });
 window.addEventListener('offline', function() {
   isOnline = false;
+  updateOfflineBanner();
   toast('📡 You are offline');
 });
 
@@ -896,8 +985,11 @@ function onDateInput(val) {
   if (digits.length > 6) fmt = digits.slice(0,4) + '-' + digits.slice(4,6) + '-' + digits.slice(6,8);
   var inp = document.getElementById('d-input');
   if (fmt !== val) inp.value = fmt;
-  var ok = isValidISO(fmt);
-  document.getElementById('d-preview').textContent = ok ? '📅 ' + fmtDate(fmt) : '';
+  var validFormat = isValidISO(fmt);
+  var isFuture = validFormat && fmt > todayISO();
+  var ok = validFormat && !isFuture;
+  document.getElementById('d-preview').textContent = isFuture ? '⚠️ Cannot use a future date' : (ok ? '📅 ' + fmtDate(fmt) : '');
+  document.getElementById('d-preview').style.color = isFuture ? 'var(--red)' : 'var(--accent)';
   document.getElementById('d-confirm').disabled = !ok;
 }
 function confirmDateModal() {
@@ -1001,6 +1093,8 @@ function setAtt(id, val) {
   expanded.att = null;
   save(); renderAtt();
   writeAtt(id, activeDay, val);   // fire-and-forget
+  var _attStudent = DATA && DATA.students.filter(function(x){ return x.id===id; })[0];
+  logActivity('attendance', (_attStudent ? _attStudent.name : String(id)) + ' → ' + (val || 'cleared') + ' on ' + activeDay);
   if (val === 'present') {
     var due = getDueInfo(id);
     if (due) toast('✅ Present  ·  ⚠️ ' + due.label, 'due');
@@ -1033,7 +1127,7 @@ async function startScanner() {
   }
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
-  } catch(e) { showScanErr('Camera access denied. Allow camera permission and try again.'); return; }
+  } catch(e) { showScanErr('Camera access denied. Enable camera permission in your browser settings, then tap Retry.', true); return; }
   var vid = document.getElementById('scan-video');
   vid.srcObject = scanStream; await vid.play();
   document.getElementById('scan-idle').style.display='none';
@@ -1064,12 +1158,36 @@ function resumeScanning() {
       if (code && code.data) handleQRScan(code.data.trim());
       scanRaf = requestAnimationFrame(loop);
     } else {
-      showScanErr('QR library not loaded. Check your internet connection and reload the page.');
+      showScanErr('QR library not loaded. Check your internet connection and reload the page.', false);
+      // Try reloading jsQR dynamically
+      var sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+      sc.onload = function() { resumeScanning(); };
+      sc.onerror = function() {
+        showScanErr('QR library unavailable. Check your internet and use the Attendance tab manually.', false);
+      };
+      document.head.appendChild(sc);
     }
   }
   scanRaf = requestAnimationFrame(loop);
 }
-function showScanErr(msg) { var el=document.getElementById('scan-err'); el.style.display='block'; el.textContent=msg; }
+function showScanErr(msg, showRetry) {
+  var el = document.getElementById('scan-err');
+  el.style.display = 'block';
+  if (showRetry) {
+    el.innerHTML = esc(msg)
+      + '<br><br><button onclick="retryCamera()" style="background:var(--accent);color:white;border:none;'
+      + 'border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)">'
+      + '📷 Retry Camera</button>';
+  } else {
+    el.textContent = msg;
+  }
+}
+function retryCamera() {
+  var errEl = document.getElementById('scan-err');
+  if (errEl) errEl.style.display = 'none';
+  startScanner();
+}
 function stopScanner() {
   if (scanRaf)    { cancelAnimationFrame(scanRaf); scanRaf=null; }
   if (scanStream) { scanStream.getTracks().forEach(function(t){t.stop();}); scanStream=null; }
@@ -1082,6 +1200,9 @@ function stopScanner() {
 }
 function handleQRScan(value) {
   if (!DATA || !activeDay) return;
+  // Sanitize: ignore blank or suspiciously long values
+  if (!value || value.length > 100) { console.warn('QR value ignored (length:', (value||'').length, ')'); return; }
+  value = value.trim();
   var now = Date.now();
   if (now - lastScannedAt < 1500) return;               // universal cooldown between any two scans
   if (value === lastScanned && now - lastScannedAt < 4000) return;
@@ -1113,6 +1234,7 @@ function handleQRScan(value) {
   attendance[activeDay][s.id] = 'present';
   save();
   writeAtt(s.id, activeDay, 'present');   // write to Supabase
+  logActivity('qr_scan', s.name + ' — marked Present on ' + activeDay);
   setTimeout(function() {
     frame.style.borderColor = 'var(--accent)';
     frame.style.boxShadow   = '0 0 0 9999px rgba(0,0,0,.5)';
@@ -1244,12 +1366,13 @@ function renderPay() {
 
 // ── setPay: optimistic update → Supabase write ──
 function setPay(sid, mn, yr, val) {
+  var s = DATA && DATA.students.filter(function(x){ return x.id===sid; })[0];
   payments[payKey(sid, mn, yr)] = val;
   save(); renderPay();
-  var s = DATA.students.filter(function(x){ return x.id===sid; })[0];
   var m = s && (s.due_months||[]).filter(function(m){ return m.month===mn && m.year===yr; })[0];
   var amount = (m && m.amount) || (s && s.fee_amount) || 0;
   writePay(sid, mn, yr, val, amount);   // fire-and-forget
+  logActivity('payment', (s ? s.name : String(sid)) + ' — ' + MONTHS[mn-1] + ' ' + yr + ' → ' + val);
   toast(val==='Paid' ? '✅ Marked Paid' : '↩ Marked Pending');
 }
 
@@ -1279,6 +1402,25 @@ function renderStatusSummary() {
   html += '<br><span style="color:var(--muted);font-size:11px">Last loaded: ';
   html += new Date(DATA.exported_at).toLocaleTimeString() + '</span>';
   document.getElementById('export-summary').innerHTML = html;
+
+  // Show pending queue status and retry button
+  var queueArea = document.getElementById('sync-queue-area');
+  if (queueArea) {
+    if (writeQueue.length > 0) {
+      queueArea.innerHTML = '<button onclick="manualFlushQueue()" class="btn-export" '
+        + 'style="background:var(--amber);color:#1a1008;margin-top:0;font-size:14px">'
+        + '🔄 Retry Sync (' + writeQueue.length + ' pending)</button>';
+    } else {
+      queueArea.innerHTML = '<div style="font-size:13px;color:var(--green);text-align:center;padding:4px 0">✅ All changes synced</div>';
+    }
+  }
+}
+async function manualFlushQueue() {
+  if (!isOnline) { toast('📡 Still offline — cannot sync'); return; }
+  if (writeQueue.length === 0) { toast('✅ Nothing to sync'); return; }
+  toast('🔄 Retrying sync…');
+  await flushWriteQueue();
+  renderStatusSummary();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1304,6 +1446,27 @@ function beep() {
   } catch(e) {}
 }
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ═══════════════════════════════════════════════════════════
+// ACTIVITY LOGGING  (non-blocking — requires activity_logs table in Supabase)
+// CREATE TABLE activity_logs (id uuid default gen_random_uuid() primary key,
+//   created_at timestamptz default now(), action text, detail text, performed_by text);
+// ═══════════════════════════════════════════════════════════
+async function logActivity(action, detail) {
+  if (!sb || !SUPABASE_URL || !currentUserEmail) return;
+  try {
+    var r = await sb.auth.getSession();
+    var token = r.data && r.data.session ? r.data.session.access_token : null;
+    if (!token) return;
+    await fetchWithTimeout(SUPABASE_URL + '/rest/v1/activity_logs', {
+      method:  'POST',
+      headers: sbHeaders(token, 'return=minimal'),
+      body:    JSON.stringify({ action: action, detail: detail, performed_by: currentUserEmail })
+    }, 8000);
+  } catch(e) {
+    console.warn('logActivity failed (non-blocking):', e.message);
+  }
+}
 var toastT;
 function toast(msg, type) {
   var el=document.getElementById('toast');
@@ -1335,7 +1498,6 @@ async function addStudent() {
   var sid    = (document.getElementById('ns-sid').value    || '').trim();
   var phone  = (document.getElementById('ns-phone').value  || '').trim();
   var email  = (document.getElementById('ns-email').value  || '').trim();
-  var fee    = parseFloat(document.getElementById('ns-fee').value) || 1000;
   var joined = (document.getElementById('ns-joined').value || '').trim();
 
   var errEl = document.getElementById('ns-err');
@@ -1345,6 +1507,12 @@ async function addStudent() {
 
   if (!name) {
     errEl.textContent   = 'Full name is required.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-name').focus();
+    return;
+  }
+  if (name.length < 2) {
+    errEl.textContent   = 'Name must be at least 2 characters.';
     errEl.style.display = 'block';
     document.getElementById('ns-name').focus();
     return;
@@ -1361,7 +1529,13 @@ async function addStudent() {
     document.getElementById('ns-sid').focus();
     return;
   }
-  if (phone && !/^0\d{9}$/.test(phone)) {
+  if (!phone) {
+    errEl.textContent   = 'Phone number is required.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-phone').focus();
+    return;
+  }
+  if (!/^0\d{9}$/.test(phone)) {
     errEl.textContent   = 'Phone must be 10 digits starting with 0 (e.g. 0771234567).';
     errEl.style.display = 'block';
     document.getElementById('ns-phone').focus();
@@ -1371,6 +1545,19 @@ async function addStudent() {
     errEl.textContent   = 'Please enter a valid email address.';
     errEl.style.display = 'block';
     document.getElementById('ns-email').focus();
+    return;
+  }
+  var fee = parseFloat(document.getElementById('ns-fee').value);
+  if (isNaN(fee) || fee <= 0) {
+    errEl.textContent   = 'Monthly fee must be greater than 0.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-fee').focus();
+    return;
+  }
+  if (joined && joined > todayISO()) {
+    errEl.textContent   = 'Joined date cannot be in the future.';
+    errEl.style.display = 'block';
+    document.getElementById('ns-joined').focus();
     return;
   }
 
@@ -1452,6 +1639,7 @@ async function addStudent() {
       }
     }
 
+    logActivity('add_student', name + ' (ID: ' + sid + ')');
     okEl.textContent   = '✓ ' + name + ' added successfully!';
     okEl.style.display = 'block';
     toast('✅ ' + name + ' added!');
@@ -1469,23 +1657,31 @@ async function addStudent() {
 // BOOT  (waits for DOMContentLoaded so deferred scripts are loaded)
 // ═══════════════════════════════════════════════════════════
 function boot() {
+  // NOTE: The Supabase anon key below is intentionally public — it is safe to embed
+  // as long as Row Level Security (RLS) is enabled on all tables in Supabase.
   var url = 'https://yssmwhsjxrhoodrzbead.supabase.co';
   var key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlzc213aHNqeHJob29kcnpiZWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NzMzNTgsImV4cCI6MjA4OTA0OTM1OH0.IO4F6Ug5NlHfY0hdQPgoim45OgXiGDVWeEq0MGzA3Ms';
   SUPABASE_URL = url;
   SUPABASE_KEY = key;
   if (!initSupabaseClient(url, key)) return;
+  // Restore any offline queue from previous session
+  loadQueue();
   // Check for an existing Supabase Auth session
   sb.auth.getSession().then(function(result) {
     if (result.data && result.data.session) {
       AUTH_TOKEN = result.data.session.access_token;
+      currentUserEmail = (result.data.session.user && result.data.session.user.email) || ADMIN_EMAIL;
       showLoading('Loading students…');
-      loadFromSupabase();
+      loadFromSupabase().then(function() {
+        // Flush any pending offline writes now that we're authenticated
+        if (writeQueue.length > 0 && isOnline) flushWriteQueue();
+      });
     } else {
       showConnectScreen();
     }
   }).catch(function(e) {
     console.error('Boot session check failed:', e);
-    showConnectScreen();
+    showBootError('Could not connect to server. Check your internet and try again.');
   });
 
   // Debounced search inputs (O2)
