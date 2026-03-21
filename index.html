@@ -693,7 +693,6 @@ async function refreshData() {
 // AUTH TOKEN HELPER — fixes iOS Safari session drop
 // ═══════════════════════════════════════════════════════════
 async function getToken() {
-  if (AUTH_TOKEN) return AUTH_TOKEN;
   try {
     var r = await sb.auth.getSession();
     if (r.data && r.data.session) {
@@ -748,7 +747,8 @@ async function writeAtt(studentId, date, status) {
     if (!resp.ok) {
       var err = await resp.json().catch(function() { return {}; });
       console.error('writeAtt failed:', resp.status, err);
-      toast('⚠️ Sync error: ' + (err.message || 'HTTP ' + resp.status));
+      queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
+      toast('⚠️ Sync error — will retry: ' + (err.message || 'HTTP ' + resp.status));
     }
   } catch(e) {
     if (e.name === 'AbortError') {
@@ -796,7 +796,8 @@ async function writePay(studentId, month, year, status, amount) {
     if (!resp.ok) {
       var err = await resp.json().catch(function() { return {}; });
       console.error('writePay failed:', resp.status, err);
-      toast('⚠️ Sync error: ' + (err.message || 'HTTP ' + resp.status));
+      queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
+      toast('⚠️ Sync error — will retry: ' + (err.message || 'HTTP ' + resp.status));
     }
   } catch(e) {
     if (e.name === 'AbortError') {
