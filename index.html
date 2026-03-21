@@ -386,6 +386,7 @@ var attendance = {};   // { "YYYY-MM-DD": { dbId: "present"|"absent" } }
 var payments   = {};   // { "id_month_year": "Paid"|"Pending"|"Waived" }
 var classDays  = [];
 var activeDay  = null;
+var attLoadedDates = {};   // tracks which dates have had attendance fetched from DB
 var expanded   = { att:null, pay:null };
 var scanLog    = [];
 var scanStream = null, scanRaf = null;
@@ -476,6 +477,9 @@ function showApp() {
   }
   updateOfflineBanner();
   renderDayBar(); renderAtt(); renderPay();
+  if (activeDay && activeDay !== todayISO() && !attLoadedDates[activeDay]) {
+    fetchAttForDate(activeDay).then(function() { renderAtt(); });
+  }
 }
 
 function showConnectErr(msg) {
@@ -666,6 +670,8 @@ async function loadFromSupabase() {
     // Seed today's attendance into local state
     attendance = {};
     attendance[today] = {};
+    attLoadedDates = {};
+    attLoadedDates[today] = true;
     DATA.students.forEach(function(s) {
       if (s.attendance_today) attendance[today][s.id] = s.attendance_today;
     });
@@ -680,6 +686,19 @@ async function loadFromSupabase() {
     showConnectErr('Could not load data — ' + (err.message || String(err)) + '. Check your URL, anon key, and that RLS policies allow access.');
     showConnectScreen();
   }
+}
+
+async function fetchAttForDate(date) {
+  if (!sb || attLoadedDates[date]) return;
+  try {
+    var r = await sb.from('attendance').select('student_id, status').eq('date', date);
+    if (r.error) return;
+    if (!attendance[date]) attendance[date] = {};
+    (r.data || []).forEach(function(row) {
+      attendance[date][row.student_id] = row.status;
+    });
+    attLoadedDates[date] = true;
+  } catch(e) {}
 }
 
 async function refreshData() {
@@ -993,7 +1012,7 @@ function onDateInput(val) {
   document.getElementById('d-preview').style.color = isFuture ? 'var(--red)' : 'var(--accent)';
   document.getElementById('d-confirm').disabled = !ok;
 }
-function confirmDateModal() {
+async function confirmDateModal() {
   var v = document.getElementById('d-input').value;
   if (!isValidISO(v)) return;
   closeDateModal();
@@ -1001,8 +1020,21 @@ function confirmDateModal() {
   activeDay = v;
   save(); renderDayBar(); renderAtt();
   toast('📅 ' + fmtDate(v) + ' added');
+  if (v !== todayISO() && !attLoadedDates[v]) {
+    await fetchAttForDate(v);
+    renderAtt();
+  }
 }
-function selectDay(d) { activeDay = d; save(); renderDayBar(); renderAtt(); }
+async function selectDay(d) {
+  activeDay = d;
+  save();
+  renderDayBar();
+  renderAtt();
+  if (d !== todayISO() && !attLoadedDates[d]) {
+    await fetchAttForDate(d);
+    renderAtt();
+  }
+}
 
 function renderDayBar() {
   var bar = document.getElementById('day-bar');
@@ -1382,7 +1414,7 @@ function setPay(sid, mn, yr, val) {
 // ═══════════════════════════════════════════════════════════
 function renderStatusSummary() {
   if (!DATA) return;
-  var today = DATA.export_date;
+  var today = activeDay || DATA.export_date;
   var dm    = attendance[today] || {};
   var p=0, a=0;
   Object.values(dm).forEach(function(v){ if(v==='present')p++; else if(v==='absent')a++; });
@@ -1395,7 +1427,8 @@ function renderStatusSummary() {
     });
   });
   var html = '<b>'+DATA.students.length+' students</b> · '+DATA.month_name+' '+DATA.year+'<br>';
-  html += '📅 Today: <span style="color:var(--green)">'+p+'</span> present';
+  var dayLabel = (today === DATA.export_date) ? 'Today' : fmtDate(today);
+  html += '📅 ' + dayLabel + ': <span style="color:var(--green)">'+p+'</span> present';
   html += ' · <span style="color:var(--red)">'+a+'</span> absent';
   if (u>0) html += ' · <span style="color:var(--amber)">'+u+'</span> unmarked';
   html += '<br>💰 <span style="color:var(--green)">'+paidMonths+'</span> months paid';
