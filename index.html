@@ -809,7 +809,8 @@ async function writePay(studentId, month, year, status, amount) {
         amount:     amount,
         paid:       status === 'Paid',
         paid_date:  status === 'Paid' ? new Date().toISOString() : null,
-        waived:     status === 'Waived'
+        waived:     status === 'Waived',
+        status:     (status === 'Paid' || status === 'Waived') ? 'final' : 'disputed'
       })
     });
     if (!resp.ok) {
@@ -865,7 +866,8 @@ async function flushWriteQueue() {
           body: JSON.stringify({
             student_id: op.studentId, month: op.month, year: op.year, amount: op.amount,
             paid: op.status === 'Paid', paid_date: op.status === 'Paid' ? new Date().toISOString() : null,
-            waived: op.status === 'Waived'
+            waived: op.status === 'Waived',
+            status: (op.status === 'Paid' || op.status === 'Waived') ? 'final' : 'disputed'
           })
         });
       }
