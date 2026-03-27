@@ -164,6 +164,12 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 
 /* ── SYNC INDICATOR in topbar ── */
 #sync-indicator { font-size:11px; color:var(--amber); font-weight:600; animation:dot 1s ease-in-out infinite; display:none; }
+
+/* ── FORM SELECT (matches conn-input style) ── */
+.conn-select { display:block; width:100%; background:var(--surf2); border:2px solid var(--border); border-radius:10px; color:var(--text); font-family:var(--font); font-size:14px; padding:13px 14px; outline:none; -webkit-appearance:none; appearance:none; margin-bottom:12px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2394a3b8' d='M1 1l5 5 5-5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 14px center; cursor:pointer; }
+.conn-select:focus { border-color:var(--accent); }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.form-row .form-col { display:flex; flex-direction:column; }
 </style>
 </head>
 <body>
@@ -317,6 +323,35 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 
       <label class="conn-label">Joined Date</label>
       <input type="date" id="ns-joined" class="conn-input">
+
+      <div class="form-row">
+        <div class="form-col">
+          <label class="conn-label">Class <span style="color:var(--red)">*</span></label>
+          <select id="ns-class" class="conn-select">
+            <option value="Academy" selected>Academy</option>
+            <option value="Upper">Upper</option>
+          </select>
+        </div>
+        <div class="form-col">
+          <label class="conn-label">School Grade</label>
+          <select id="ns-grade" class="conn-select">
+            <option value="">— Not set —</option>
+            <option value="Grade 1">Grade 1</option>
+            <option value="Grade 2">Grade 2</option>
+            <option value="Grade 3">Grade 3</option>
+            <option value="Grade 4">Grade 4</option>
+            <option value="Grade 5">Grade 5</option>
+            <option value="Grade 6">Grade 6</option>
+            <option value="Grade 7">Grade 7</option>
+            <option value="Grade 8">Grade 8</option>
+            <option value="Grade 9">Grade 9</option>
+            <option value="Grade 10">Grade 10</option>
+            <option value="Grade 11">Grade 11</option>
+            <option value="Grade 12">Grade 12</option>
+            <option value="Grade 13">Grade 13</option>
+          </select>
+        </div>
+      </div>
 
       <div id="ns-err" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--red);margin-bottom:12px"></div>
       <div id="ns-ok"  style="display:none;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--green);margin-bottom:12px"></div>
@@ -1523,6 +1558,10 @@ function clearAddStudentForm() {
     var el = document.getElementById(id);
     if (el) { if (id === 'ns-fee') el.value = '1000'; else el.value = ''; }
   });
+  var clsEl = document.getElementById('ns-class');
+  if (clsEl) clsEl.value = 'Academy';
+  var grEl = document.getElementById('ns-grade');
+  if (grEl) grEl.value = '';
   document.getElementById('ns-err').style.display = 'none';
   document.getElementById('ns-ok').style.display  = 'none';
   var btn = document.getElementById('ns-btn');
@@ -1535,6 +1574,8 @@ async function addStudent() {
   var phone  = (document.getElementById('ns-phone').value  || '').trim();
   var email  = (document.getElementById('ns-email').value  || '').trim();
   var joined = (document.getElementById('ns-joined').value || '').trim();
+  var cls    = (document.getElementById('ns-class').value  || 'Academy').trim();
+  var grade  = (document.getElementById('ns-grade').value  || '').trim();
 
   var errEl = document.getElementById('ns-err');
   var okEl  = document.getElementById('ns-ok');
@@ -1606,7 +1647,9 @@ async function addStudent() {
       name:        name,
       fee_amount:  fee,
       active:      true,
-      achievements: ''
+      achievements: '',
+      class:       cls,
+      grade:       grade || null
     };
     if (sid)    payload.student_id  = sid;
     if (phone)  payload.phone       = phone;
@@ -1667,6 +1710,7 @@ async function addStudent() {
         phone: newS.phone, email: newS.email, fee_amount: newS.fee_amount,
         active: newS.active, created_at: newS.created_at,
         joined_date: newS.joined_date, achievements: newS.achievements || '',
+        class: newS.class || cls, grade: newS.grade || grade,
         attendance_today: null, due_months: due
       };
       if (DATA && DATA.students) {
