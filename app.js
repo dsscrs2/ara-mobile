@@ -20,7 +20,7 @@ var payments   = {};   // { "id_month_year": "Paid"|"Pending"|"Waived" }
 var classDays  = [];
 var activeDay  = null;
 var attLoadedDates = {};   // tracks which dates have had attendance fetched from DB
-var expanded   = { att:null, pay:null };
+var expanded   = { att:null, pay:null, payYear:{} };
 var scanLog    = [];
 var scanStream = null, scanRaf = null;
 var lastScanned = null, lastScannedAt = 0;
@@ -805,6 +805,12 @@ function setAtt(id, val) {
 
 function togExp(t, id) { expanded[t] = expanded[t]===id ? null : id; t==='att' ? renderAtt() : renderPay(); }
 
+function togYearExp(sid, yr) {
+  var key = sid + '_' + yr;
+  expanded.payYear[key] = !expanded.payYear[key];
+  renderPay();
+}
+
 // ═══════════════════════════════════════════════════════════
 // QR SCANNER  (unchanged)
 // ═══════════════════════════════════════════════════════════
@@ -1033,33 +1039,68 @@ function renderPay() {
     var badge = allPaid
       ? '<div class="sc-st sk">All Paid</div>'
       : '<div class="sc-st sq">'+pendingCount+' unpaid</div>';
-    var monthRows = months.map(function(m) {
-      var key=payKey(s.id,m.month,m.year), st=payments[key]||m.status;
-      var isPaid=st==='Paid', isWaived=st==='Waived';
-      var rowColor=isPaid?'rgba(34,197,94,.06)':isWaived?'rgba(167,139,250,.06)':'rgba(245,158,11,.06)';
-      var badge2=isPaid?'<span style="font-size:11px;font-weight:700;color:var(--green)">✅ Paid</span>'
-                :isWaived?'<span style="font-size:11px;font-weight:700;color:#a78bfa">🎫 Waived</span>'
-                :'<span style="font-size:11px;font-weight:700;color:var(--amber)">Pending</span>';
-      var btn=isWaived?'':isPaid
-        ?'<button data-action="setPay" data-id="'+s.id+'" data-month="'+m.month+'" data-year="'+m.year+'" data-status="Pending" style="background:var(--surf2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">↩</button>'
-        :'<button data-action="setPay" data-id="'+s.id+'" data-month="'+m.month+'" data-year="'+m.year+'" data-status="Paid" style="background:var(--green);color:white;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);-webkit-appearance:none;">Mark Paid</button>';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:'+rowColor+';border-top:1px solid var(--border);">'
-        +'<div style="flex:1;font-size:13px;font-weight:600;">'+m.month_name+' '+m.year+'</div>'
-        +'<div style="font-size:12px;color:var(--muted);margin-right:4px;">Rs. '+Number(m.amount||0).toLocaleString()+'</div>'
-        +badge2+'<div style="margin-left:4px;">'+btn+'</div></div>';
+    // ── Group months by year ──
+    var MABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var yearMap = {};
+    months.forEach(function(m) {
+      if (!yearMap[m.year]) yearMap[m.year] = [];
+      yearMap[m.year].push(m);
+    });
+    var years = Object.keys(yearMap).map(Number).sort();
+    var curYrVal = DATA.year;
+
+    // Build grid cells for a given year's months
+    function buildGrid(sid, yMonths) {
+      return '<div class="pay-grid">' + yMonths.map(function(m) {
+        var key = payKey(sid, m.month, m.year), st = payments[key] || m.status;
+        var isPaid = st === 'Paid', isWaived = st === 'Waived';
+        var cls = isPaid ? 'pc-paid' : isWaived ? 'pc-waived' : 'pc-pending';
+        var ico = isPaid ? '✓' : isWaived ? '·' : '';
+        var attrs = isWaived ? '' : ' data-action="setPay" data-id="' + sid
+          + '" data-month="' + m.month + '" data-year="' + m.year
+          + '" data-status="' + (isPaid ? 'Pending' : 'Paid') + '"';
+        return '<div class="pay-cell ' + cls + '"' + attrs + '>'
+          + '<span class="pc-mon">' + MABBR[m.month - 1] + '</span>'
+          + '<span class="pc-ico">' + ico + '</span></div>';
+      }).join('') + '</div>';
+    }
+
+    var yearSections = years.map(function(yr) {
+      var yMonths = yearMap[yr];
+      var paidC = yMonths.filter(function(m) { var st = payments[payKey(s.id,m.month,m.year)] || m.status; return st === 'Paid' || st === 'Waived'; }).length;
+      var totalC = yMonths.length;
+      var yrAllPaid = paidC === totalC;
+      var pendC = totalC - paidC;
+
+      if (yr === curYrVal) {
+        // Current year: always show grid
+        var hint = '<div class="pay-yr-hint">' + yr + ' — tap pending to mark paid</div>';
+        return hint + buildGrid(s.id, yMonths);
+      } else {
+        // Past year: collapsed summary, tappable to expand
+        var yrKey = s.id + '_' + yr;
+        var yrOpen = expanded.payYear[yrKey];
+        var countTxt = totalC === 12 ? 'all 12 months' : totalC + ' month' + (totalC > 1 ? 's' : '');
+        var statusTxt = yrAllPaid
+          ? '<span style="color:var(--green)">All paid ✓</span>'
+          : '<span style="color:var(--amber)">' + paidC + ' paid, ' + pendC + ' unpaid</span>';
+        var row = '<div class="pay-year-row" data-action="togYearExp" data-id="' + s.id + '" data-year="' + yr + '">'
+          + '<span class="yr-label">' + yr + ' — ' + countTxt + '</span>'
+          + '<span class="yr-badge">' + statusTxt + '</span></div>';
+        return row + (yrOpen ? buildGrid(s.id, yMonths) : '');
+      }
     }).join('');
-    var footer=(!allPaid&&isO)
-      ?'<div style="display:flex;justify-content:space-between;padding:8px 12px 10px;border-top:1px solid var(--border);background:rgba(245,158,11,.06);">'
-        +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Total Due</span>'
-        +'<span style="font-size:13px;font-weight:700;color:var(--amber)">Rs. '+totalAmt.toLocaleString()+'</span></div>'
-      :'';
+
+    var footer = (!allPaid && isO)
+      ? '<div class="pay-footer"><span>Total due</span><span>Rs. ' + totalAmt.toLocaleString() + '</span></div>'
+      : '';
     return '<div class="student-card '+(allPaid?'paid':'')+(isO?' open':'')+'">'
       +'<div class="sc-main" data-action="togExp" data-type="pay" data-id="'+s.id+'">'
         +'<div class="sc-av">'+ini+'</div>'
         +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div>'
         +'<div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
         +badge+'</div>'
-      +(isO ? monthRows + footer : '')
+      +(isO ? yearSections + footer : '')
       +'</div>';
   }).join('');
 }
@@ -1425,6 +1466,7 @@ document.addEventListener('click', function(e) {
     case 'togExp':       togExp(el.getAttribute('data-type'), Number(el.getAttribute('data-id'))); break;
     case 'setAtt':       setAtt(Number(el.getAttribute('data-id')), el.getAttribute('data-status') || null); break;
     case 'setPay':       setPay(Number(el.getAttribute('data-id')), Number(el.getAttribute('data-month')), Number(el.getAttribute('data-year')), el.getAttribute('data-status')); break;
+    case 'togYearExp':   togYearExp(Number(el.getAttribute('data-id')), Number(el.getAttribute('data-year'))); break;
     case 'retryCamera':  retryCamera(); break;
     case 'manualFlush':  manualFlushQueue(); break;
   }

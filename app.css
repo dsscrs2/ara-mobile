@@ -112,6 +112,22 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 .a-unpaid  { background:var(--amber); color:white; }
 .a-ghost   { background:var(--surf2); color:var(--muted); border:1px solid var(--border) !important; }
 
+/* ── PAYMENT GRID ── */
+.pay-year-row { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-top:1px solid var(--border); cursor:pointer; }
+.pay-year-row .yr-label { font-size:13px; font-weight:600; color:var(--text); }
+.pay-year-row .yr-badge { font-size:11px; font-weight:700; }
+.pay-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:4px; padding:8px 12px; border-top:1px solid var(--border); }
+.pay-cell { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:6px 2px; border-radius:8px; font-family:var(--font); font-size:12px; font-weight:600; cursor:pointer; -webkit-appearance:none; transition:opacity .15s; min-height:40px; }
+.pay-cell:active { opacity:.7; }
+.pay-cell .pc-mon { line-height:1.2; }
+.pay-cell .pc-ico { font-size:10px; line-height:1; margin-top:1px; }
+.pay-cell.pc-paid    { background:rgba(34,197,94,.15); color:var(--green); }
+.pay-cell.pc-pending { background:rgba(245,158,11,.15); color:var(--amber); }
+.pay-cell.pc-waived  { background:rgba(167,139,250,.15); color:#a78bfa; cursor:default; opacity:.7; }
+.pay-cell.pc-waived:active { opacity:.7; }
+.pay-footer { display:flex; justify-content:space-between; padding:8px 12px 10px; border-top:1px solid var(--border); font-size:13px; font-weight:700; color:var(--amber); }
+.pay-yr-hint { font-size:11px; color:var(--muted); padding:6px 12px 0; border-top:1px solid var(--border); }
+
 /* ── SCAN ── */
 .scan-outer { background:var(--surf); border:1px solid var(--border); border-radius:var(--r); overflow:hidden; margin:12px; position:relative; }
 #scan-video  { width:100%; display:block; max-height:300px; object-fit:cover; background:#000; }
