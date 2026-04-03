@@ -10,6 +10,7 @@ var sb = null;
 
 var MONTHS = ['January','February','March','April','May','June',
               'July','August','September','October','November','December'];
+var MABBR  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ═══════════════════════════════════════════════════════════
 // STATE  (unchanged from original)
@@ -803,7 +804,15 @@ function setAtt(id, val) {
   }
 }
 
-function togExp(t, id) { expanded[t] = expanded[t]===id ? null : id; t==='att' ? renderAtt() : renderPay(); }
+function togExp(t, id) {
+  expanded[t] = expanded[t]===id ? null : id;
+  if (t==='pay' && expanded.pay!==id) {
+    Object.keys(expanded.payYear).forEach(function(k) {
+      if (k.indexOf(id+'_')===0) delete expanded.payYear[k];
+    });
+  }
+  t==='att' ? renderAtt() : renderPay();
+}
 
 function togYearExp(sid, yr) {
   var key = sid + '_' + yr;
@@ -996,6 +1005,21 @@ function updatePayFilterUI() {
 // ═══════════════════════════════════════════════════════════
 function payKey(sid, mn, yr) { return sid + '_' + mn + '_' + yr; }
 
+function buildPayGrid(sid, yMonths) {
+  return '<div class="pay-grid">' + yMonths.map(function(m) {
+    var key = payKey(sid, m.month, m.year), st = payments[key] || m.status;
+    var isPaid = st === 'Paid', isWaived = st === 'Waived';
+    var cls = isPaid ? 'pc-paid' : isWaived ? 'pc-waived' : 'pc-pending';
+    var ico = isPaid ? '✓' : isWaived ? '·' : '';
+    var attrs = isWaived ? '' : ' data-action="setPay" data-id="' + sid
+      + '" data-month="' + m.month + '" data-year="' + m.year
+      + '" data-status="' + (isPaid ? 'Pending' : 'Paid') + '"';
+    return '<div class="pay-cell ' + cls + '"' + attrs + '>'
+      + '<span class="pc-mon">' + MABBR[m.month - 1] + '</span>'
+      + '<span class="pc-ico">' + ico + '</span></div>';
+  }).join('') + '</div>';
+}
+
 function renderPay() {
   if (!DATA) return;
   var q = ((document.getElementById('pay-q') || {}).value || '').toLowerCase();
@@ -1040,7 +1064,6 @@ function renderPay() {
       ? '<div class="sc-st sk">All Paid</div>'
       : '<div class="sc-st sq">'+pendingCount+' unpaid</div>';
     // ── Group months by year ──
-    var MABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     var yearMap = {};
     months.forEach(function(m) {
       if (!yearMap[m.year]) yearMap[m.year] = [];
@@ -1048,22 +1071,6 @@ function renderPay() {
     });
     var years = Object.keys(yearMap).map(Number).sort();
     var curYrVal = DATA.year;
-
-    // Build grid cells for a given year's months
-    function buildGrid(sid, yMonths) {
-      return '<div class="pay-grid">' + yMonths.map(function(m) {
-        var key = payKey(sid, m.month, m.year), st = payments[key] || m.status;
-        var isPaid = st === 'Paid', isWaived = st === 'Waived';
-        var cls = isPaid ? 'pc-paid' : isWaived ? 'pc-waived' : 'pc-pending';
-        var ico = isPaid ? '✓' : isWaived ? '·' : '';
-        var attrs = isWaived ? '' : ' data-action="setPay" data-id="' + sid
-          + '" data-month="' + m.month + '" data-year="' + m.year
-          + '" data-status="' + (isPaid ? 'Pending' : 'Paid') + '"';
-        return '<div class="pay-cell ' + cls + '"' + attrs + '>'
-          + '<span class="pc-mon">' + MABBR[m.month - 1] + '</span>'
-          + '<span class="pc-ico">' + ico + '</span></div>';
-      }).join('') + '</div>';
-    }
 
     var yearSections = years.map(function(yr) {
       var yMonths = yearMap[yr];
@@ -1075,7 +1082,7 @@ function renderPay() {
       if (yr === curYrVal) {
         // Current year: always show grid
         var hint = '<div class="pay-yr-hint">' + yr + ' — tap pending to mark paid</div>';
-        return hint + buildGrid(s.id, yMonths);
+        return hint + buildPayGrid(s.id, yMonths);
       } else {
         // Past year: collapsed summary, tappable to expand
         var yrKey = s.id + '_' + yr;
@@ -1084,10 +1091,11 @@ function renderPay() {
         var statusTxt = yrAllPaid
           ? '<span style="color:var(--green)">All paid ✓</span>'
           : '<span style="color:var(--amber)">' + paidC + ' paid, ' + pendC + ' unpaid</span>';
+        var chevron = yrOpen ? '▾' : '▸';
         var row = '<div class="pay-year-row" data-action="togYearExp" data-id="' + s.id + '" data-year="' + yr + '">'
-          + '<span class="yr-label">' + yr + ' — ' + countTxt + '</span>'
+          + '<span class="yr-label"><span class="yr-chev">' + chevron + '</span>' + yr + ' — ' + countTxt + '</span>'
           + '<span class="yr-badge">' + statusTxt + '</span></div>';
-        return row + (yrOpen ? buildGrid(s.id, yMonths) : '');
+        return row + (yrOpen ? buildPayGrid(s.id, yMonths) : '');
       }
     }).join('');
 

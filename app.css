@@ -114,14 +114,15 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 
 /* ── PAYMENT GRID ── */
 .pay-year-row { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-top:1px solid var(--border); cursor:pointer; }
-.pay-year-row .yr-label { font-size:13px; font-weight:600; color:var(--text); }
+.pay-year-row .yr-label { font-size:13px; font-weight:600; color:var(--text); display:flex; align-items:center; gap:6px; }
 .pay-year-row .yr-badge { font-size:11px; font-weight:700; }
+.yr-chev { font-size:11px; color:var(--muted); width:10px; display:inline-block; text-align:center; }
 .pay-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:4px; padding:8px 12px; border-top:1px solid var(--border); }
 .pay-cell { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:6px 2px; border-radius:8px; font-family:var(--font); font-size:12px; font-weight:600; cursor:pointer; -webkit-appearance:none; transition:opacity .15s; min-height:40px; }
 .pay-cell:active { opacity:.7; }
 .pay-cell .pc-mon { line-height:1.2; }
 .pay-cell .pc-ico { font-size:10px; line-height:1; margin-top:1px; }
-.pay-cell.pc-paid    { background:rgba(34,197,94,.15); color:var(--green); }
+.pay-cell.pc-paid    { background:rgba(34,197,94,.22); color:var(--green); }
 .pay-cell.pc-pending { background:rgba(245,158,11,.15); color:var(--amber); }
 .pay-cell.pc-waived  { background:rgba(167,139,250,.15); color:#a78bfa; cursor:default; opacity:.7; }
 .pay-cell.pc-waived:active { opacity:.7; }
