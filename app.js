@@ -1332,7 +1332,6 @@ async function addStudent() {
       name:        name,
       fee_amount:  fee,
       active:      true,
-      achievements: '',
       class:       cls,
       grade:       grade || null
     };
@@ -1395,7 +1394,7 @@ async function addStudent() {
         id: newS.id, student_id: newS.student_id, name: newS.name,
         phone: newS.phone, email: newS.email, fee_amount: newS.fee_amount,
         active: newS.active, created_at: newS.created_at,
-        joined_date: newS.joined_date, achievements: newS.achievements || '',
+        joined_date: newS.joined_date,
         class: newS.class || cls, grade: newS.grade || grade,
         attendance_today: null, due_months: due
       };
