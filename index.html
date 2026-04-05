@@ -25,7 +25,7 @@
   <p class="sub">D S Senanayeke College · Mobile Companion</p>
   <div class="import-card">
     <h3>Welcome back</h3>
-    <p style="margin-bottom:18px;color:var(--muted)">Enter your credentials to continue</p>
+    <p class="intro-copy">Enter your credentials to continue</p>
     <label class="conn-label">Email</label>
     <input type="email" id="login-email" class="conn-input" placeholder="Enter admin email"
            autocomplete="username"
@@ -34,8 +34,8 @@
     <input type="password" id="login-pw" class="conn-input" placeholder="Enter password"
            autocomplete="current-password"
            >
-    <button class="file-label" id="login-btn">🔓 &nbsp; Login</button>
-    <div id="connect-err"></div>
+    <button type="button" class="file-label" id="login-btn">🔓 &nbsp; Login</button>
+    <div id="connect-err" role="alert" aria-live="assertive"></div>
   </div>
 </div>
 
@@ -56,75 +56,72 @@
   <div class="topbar">
     <div class="topbar-row">
       <div><h2>🎯 Air Rifle Academy</h2><div class="meta" id="topbar-meta"></div></div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span id="sync-indicator">⟳ Syncing…</span>
-        <span id="topbar-status" class="live"><span class="dot"></span>Live</span>
+      <div class="topbar-actions">
+        <span id="sync-indicator" aria-live="polite">⟳ Syncing…</span>
+        <span id="topbar-status" class="live" aria-live="polite"><span class="dot"></span>Live</span>
         <div class="date-badge" id="topbar-date"></div>
-        <button id="topbar-logout" title="Log out"
-          style="background:transparent;border:1px solid var(--border);border-radius:8px;
-                 color:var(--muted);font-size:13px;padding:4px 9px;cursor:pointer;
-                 font-family:var(--font);line-height:1;-webkit-appearance:none;">🔒</button>
+        <button type="button" id="topbar-logout" title="Log out" class="icon-btn-muted">🔒</button>
       </div>
     </div>
   </div>
-  <div class="tabbar">
-    <div class="tab active" data-tab="attendance">📋 Attend.</div>
-    <div class="tab"        data-tab="scan">📷 Scan</div>
-    <div class="tab"        data-tab="payments">💰 Pay</div>
-    <div class="tab"        data-tab="addstudent">➕ Add</div>
-    <div class="tab"        data-tab="status">☁️ Sync</div>
+  <div class="tabbar" role="tablist" aria-label="Main sections">
+    <button type="button" class="tab active" id="tab-attendance-btn" data-tab="attendance" role="tab" aria-selected="true" tabindex="0" aria-controls="tab-attendance">📋 Attend.</button>
+    <button type="button" class="tab" id="tab-scan-btn" data-tab="scan" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-scan">📷 Scan</button>
+    <button type="button" class="tab" id="tab-payments-btn" data-tab="payments" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-payments">💰 Pay</button>
+    <button type="button" class="tab" id="tab-addstudent-btn" data-tab="addstudent" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-addstudent">➕ Add</button>
+    <button type="button" class="tab" id="tab-status-btn" data-tab="status" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-status">☁️ Sync</button>
   </div>
   <div id="offline-banner">📡 Offline — changes will sync when reconnected</div>
 
   <!-- ATTENDANCE -->
-  <div class="tab-content active" id="tab-attendance">
+  <div class="tab-content active" id="tab-attendance" role="tabpanel" aria-labelledby="tab-attendance-btn">
     <div class="cards-row">
-      <div class="mini-card" id="fc-present"  data-filter="present"><div class="val" id="a-present"  style="color:var(--green)">0</div><div class="lbl">Present</div></div>
-      <div class="mini-card" id="fc-absent"   data-filter="absent"><div class="val" id="a-absent"   style="color:var(--red)">0</div><div class="lbl">Absent</div></div>
-      <div class="mini-card" id="fc-unmarked" data-filter="unmarked"><div class="val" id="a-unmarked" style="color:var(--amber)">0</div><div class="lbl">Unmarked</div></div>
+      <div class="mini-card" id="fc-present" data-filter="present" role="button" tabindex="0" aria-pressed="false"><div class="val counter-val-green" id="a-present">0</div><div class="lbl">Present</div></div>
+      <div class="mini-card" id="fc-absent" data-filter="absent" role="button" tabindex="0" aria-pressed="false"><div class="val counter-val-red" id="a-absent">0</div><div class="lbl">Absent</div></div>
+      <div class="mini-card" id="fc-unmarked" data-filter="unmarked" role="button" tabindex="0" aria-pressed="false"><div class="val counter-val-amber" id="a-unmarked">0</div><div class="lbl">Unmarked</div></div>
     </div>
     <div class="section-label">Class Day</div>
     <div class="day-bar" id="day-bar"></div>
     <div id="no-day-msg" class="no-day"><div class="big">📅</div>Select a date above to view attendance</div>
-    <div id="att-body" style="display:none">
-      <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="att-q"></div>
+    <div id="att-body" class="hidden-panel">
+      <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="att-q" aria-label="Search attendance students"></div>
       <div class="student-list" id="att-list"></div>
     </div>
   </div>
 
   <!-- SCAN -->
-  <div class="tab-content" id="tab-scan">
-    <div style="padding:10px 12px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="font-size:13px;color:var(--muted)">Marking for:</span>
-      <span id="scan-day-lbl" style="background:var(--accent);color:white;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600"></span>
-      <button id="scan-change-day-btn" style="margin-left:auto;background:var(--surf2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font)">Change Day</button>
+  <div class="tab-content" id="tab-scan" role="tabpanel" aria-labelledby="tab-scan-btn">
+    <div class="scan-toolbar">
+      <span class="scan-toolbar-label">Marking for:</span>
+      <span id="scan-day-lbl" class="scan-day-pill"></span>
+      <button type="button" id="scan-change-day-btn" class="scan-toolbar-btn">Change Day</button>
     </div>
-    <div id="scan-no-day" style="display:none" class="no-day"><div class="big">📅</div>Go to <b>Attendance</b> tab and add a class day first.</div>
-    <div id="scan-body" style="display:none">
-      <div id="ios-scan-note" style="display:none" class="info-banner">📱 <b>iPhone note:</b> If camera doesn't work, use the <b>Attendance tab</b> to mark students manually.</div>
+    <div id="scan-no-day" class="no-day hidden-panel"><div class="big">📅</div>Go to <b>Attendance</b> tab and add a class day first.</div>
+    <div id="scan-body" class="hidden-panel">
+      <div id="ios-scan-note" class="info-banner hidden-panel">📱 <b>iPhone note:</b> If camera doesn't work, use the <b>Attendance tab</b> to mark students manually.</div>
       <div class="scan-outer">
-        <div id="scan-idle" style="padding:32px 20px;text-align:center">
-          <div style="font-size:44px;margin-bottom:10px">📷</div>
-          <div style="font-size:15px;font-weight:600;margin-bottom:6px">QR Code Scanner</div>
-          <div style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.5">Point camera at student's QR card.<br>They are marked <b style="color:var(--green)">Present</b> instantly.</div>
-          <button id="start-btn" style="background:var(--accent);color:white;border:none;border-radius:10px;padding:13px 28px;font-family:var(--font);font-size:15px;font-weight:600;cursor:pointer;width:100%;-webkit-appearance:none">Start Camera</button>
-          <div id="scan-err" style="display:none;margin-top:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:12px;font-size:13px;color:var(--amber);line-height:1.6"></div>
+        <div id="scan-idle" class="scan-idle">
+          <div class="scan-idle-icon">📷</div>
+          <div class="scan-idle-title">QR Code Scanner</div>
+          <div class="scan-idle-copy">Point camera at student's QR card.<br>They are marked <b class="scan-copy-good">Present</b> instantly.</div>
+          <button type="button" id="start-btn" class="scan-start-btn">Start Camera</button>
+          <div id="scan-err" class="scan-error" role="alert" aria-live="assertive"></div>
         </div>
-        <div id="scan-live" style="display:none;position:relative">
-          <video id="scan-video" autoplay playsinline muted style="width:100%;display:block;max-height:300px;object-fit:cover;background:#000"></video>
+        <div id="scan-live" class="scan-live">
+          <video id="scan-video" class="scan-video" autoplay playsinline muted></video>
           <div class="scan-ov"><div id="scan-frame"></div></div>
-          <canvas id="scan-canvas" style="display:none"></canvas>
-          <button id="stop-btn" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,.65);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)">✕ Stop</button>
+          <canvas id="scan-canvas" class="hidden-canvas"></canvas>
+          <button type="button" id="stop-btn" class="scan-stop-btn">✕ Stop</button>
         </div>
       </div>
-      <div id="scan-result" style="display:none;margin:0 12px 10px;background:var(--surf);border:2px solid var(--green);border-radius:var(--r);padding:14px;text-align:center">
-        <div style="font-size:28px;margin-bottom:6px">✅</div>
-        <div id="sr-name" style="font-size:17px;font-weight:700"></div>
-        <div id="sr-id"   style="font-size:13px;color:var(--muted);margin-top:2px"></div>
-        <div style="font-size:13px;color:var(--green);font-weight:600;margin-top:6px">Marked Present</div>
-        <div id="sr-due"  style="display:none;margin-top:8px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:700;color:var(--amber)"></div>
+      <div id="scan-result" class="scan-result">
+        <div class="scan-result-icon">✅</div>
+        <div id="sr-name" class="scan-result-name"></div>
+        <div id="sr-id" class="scan-result-id"></div>
+        <div class="scan-result-copy">Marked Present</div>
+        <div id="sr-due" class="scan-result-due"></div>
       </div>
-      <div id="scan-log-wrap" style="display:none;padding:0 12px">
+      <div id="scan-log-wrap" class="scan-log-wrap">
         <div class="section-label">Scanned this session</div>
         <div id="scan-log"></div>
       </div>
@@ -132,29 +129,29 @@
   </div>
 
   <!-- PAYMENTS -->
-  <div class="tab-content" id="tab-payments">
+  <div class="tab-content" id="tab-payments" role="tabpanel" aria-labelledby="tab-payments-btn">
     <div class="cards-row">
-      <div class="mini-card" id="fc-paid"    data-payfilter="paid"><div class="val" id="p-paid"    style="color:var(--green)">0</div><div class="lbl">Paid</div></div>
-      <div class="mini-card" id="fc-pending" data-payfilter="pending"><div class="val" id="p-pending" style="color:var(--amber)">0</div><div class="lbl">Pending</div></div>
-      <div class="mini-card" id="fc-total"   data-payfilter=""><div class="val" id="p-total"   style="color:var(--muted)">0</div><div class="lbl">Total</div></div>
+      <div class="mini-card" id="fc-paid" data-payfilter="paid" role="button" tabindex="0" aria-pressed="false"><div class="val counter-val-green" id="p-paid">0</div><div class="lbl">Paid</div></div>
+      <div class="mini-card" id="fc-pending" data-payfilter="pending" role="button" tabindex="0" aria-pressed="false"><div class="val counter-val-amber" id="p-pending">0</div><div class="lbl">Pending</div></div>
+      <div class="mini-card" id="fc-total" data-payfilter="" role="button" tabindex="0" aria-pressed="false"><div class="val counter-val-muted" id="p-total">0</div><div class="lbl">Total</div></div>
     </div>
-    <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q"></div>
+    <div class="search-wrap"><input class="search-input" type="search" placeholder="Search student…" id="pay-q" aria-label="Search payment students"></div>
     <div class="student-list" id="pay-list"></div>
   </div>
 
   <!-- ADD STUDENT TAB -->
-  <div class="tab-content" id="tab-addstudent">
+  <div class="tab-content" id="tab-addstudent" role="tabpanel" aria-labelledby="tab-addstudent-btn">
     <div class="export-card">
       <h3>➕ Add New Student</h3>
-      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Student will be added to Supabase immediately.</p>
+      <p class="status-note">Student will be added to Supabase immediately.</p>
 
-      <label class="conn-label">Full Name <span style="color:var(--red)">*</span></label>
+      <label class="conn-label">Full Name <span class="required-mark">*</span></label>
       <input type="text" id="ns-name" class="conn-input" placeholder="e.g. Kavindu Perera" autocorrect="off" maxlength="80">
 
-      <label class="conn-label">Student ID <span style="color:var(--red)">*</span></label>
+      <label class="conn-label">Student ID <span class="required-mark">*</span></label>
       <input type="text" id="ns-sid" class="conn-input" placeholder="e.g. 10045" inputmode="numeric" maxlength="5" autocorrect="off">
 
-      <label class="conn-label">Phone <span style="color:var(--red)">*</span></label>
+      <label class="conn-label">Phone <span class="required-mark">*</span></label>
       <input type="tel" id="ns-phone" class="conn-input" placeholder="e.g. 0771234567">
 
       <label class="conn-label">Email</label>
@@ -168,7 +165,7 @@
 
       <div class="form-row">
         <div class="form-col">
-          <label class="conn-label">Class <span style="color:var(--red)">*</span></label>
+          <label class="conn-label">Class <span class="required-mark">*</span></label>
           <select id="ns-class" class="conn-select">
             <option value="Academy" selected>Academy</option>
             <option value="Upper">Upper</option>
@@ -195,51 +192,51 @@
         </div>
       </div>
 
-      <div id="ns-err" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--red);margin-bottom:12px"></div>
-      <div id="ns-ok"  style="display:none;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--green);margin-bottom:12px"></div>
+      <div id="ns-err" class="status-message error"></div>
+      <div id="ns-ok" class="status-message success"></div>
 
-      <button class="btn-export blue" id="ns-btn" style="width:100%;margin-top:4px">➕ &nbsp; Add Student</button>
+      <button type="button" class="btn-export blue" id="ns-btn">➕ &nbsp; Add Student</button>
     </div>
-    <div style="height:30px"></div>
+    <div class="status-spacer-lg"></div>
   </div>
 
   <!-- STATUS / SYNC TAB (replaces old Export tab) -->
-  <div class="tab-content" id="tab-status">
+  <div class="tab-content" id="tab-status" role="tabpanel" aria-labelledby="tab-status-btn">
     <div class="export-card">
       <h3>☁️ Live Sync Status</h3>
       <p>All attendance and payment changes write directly to Supabase — no file transfers needed.</p>
       <div class="summary-block" id="export-summary">Loading…</div>
-      <button class="btn-export blue" id="refresh-btn">🔄 &nbsp; Refresh Data</button>
-      <div id="sync-queue-area" style="margin-top:10px"></div>
+      <button type="button" class="btn-export blue" id="refresh-btn">🔄 &nbsp; Refresh Data</button>
+      <div id="sync-queue-area" class="status-action-gap"></div>
     </div>
     <div class="export-card">
       <h3>Connection</h3>
-      <div style="margin-bottom:10px"><span class="conn-pill">● Live</span></div>
+      <div class="status-action-gap"><span class="conn-pill">● Live</span></div>
       <div class="conn-url" id="conn-url-display"></div>
-      <div style="height:14px"></div>
-      <button class="btn-export danger" id="logout-btn">🔒 &nbsp; Log Out</button>
+      <div class="status-spacer-sm"></div>
+      <button type="button" class="btn-export danger" id="logout-btn">🔒 &nbsp; Log Out</button>
     </div>
-    <div style="height:30px"></div>
+    <div class="status-spacer-lg"></div>
   </div>
 </div>
 
 <!-- DATE MODAL -->
-<div class="modal-bg" id="date-modal" style="display:none">
-  <div class="modal-sheet" id="date-modal-sheet">
-    <h3>Add Class Day</h3>
+<div class="modal-bg hidden-panel" id="date-modal" aria-hidden="true">
+  <div class="modal-sheet" id="date-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="date-modal-title" tabindex="-1">
+    <h3 id="date-modal-title">Add Class Day</h3>
     <p class="modal-hint">Enter the date of the class</p>
     <div class="d-label">Date (YYYY-MM-DD)</div>
     <input type="text" class="d-input" id="d-input" placeholder="2026-03-10" maxlength="10"
            autocomplete="off" autocorrect="off" spellcheck="false">
-    <div class="d-preview" id="d-preview"></div>
+    <div class="d-preview" id="d-preview" aria-live="polite"></div>
     <div class="modal-btn-row">
-      <button class="modal-btn cancel" id="d-cancel">Cancel</button>
-      <button class="modal-btn confirm" id="d-confirm" disabled>Add Day ✓</button>
+      <button type="button" class="modal-btn cancel" id="d-cancel">Cancel</button>
+      <button type="button" class="modal-btn confirm" id="d-confirm" disabled>Add Day ✓</button>
     </div>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="app.js"></script>
 </body>

@@ -11,6 +11,14 @@ var sb = null;
 var MONTHS = ['January','February','March','April','May','June',
               'July','August','September','October','November','December'];
 var MABBR  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var REQUEST_TIMEOUT_MS = 15000;
+var QUEUE_LIMIT = 50;
+var WRITE_BATCH_SIZE = 5;
+var WRITE_RETRY_LIMIT = 3;
+var SCAN_LOG_LIMIT = 20;
+var QR_MAX_LENGTH = 100;
+var SCAN_COOLDOWN_MS = 1500;
+var DUP_SCAN_WINDOW_MS = 4000;
 
 // ═══════════════════════════════════════════════════════════
 // STATE  (unchanged from original)
@@ -26,6 +34,7 @@ var scanLog    = [];
 var scanStream = null, scanRaf = null;
 var lastScanned = null, lastScannedAt = 0;
 var detector   = null;
+var lastFocusedBeforeModal = null;
 
 // Login rate limiting (S5)
 var loginAttempts = 0;
@@ -33,22 +42,131 @@ var loginLockUntil = 0;
 
 // Offline queue & connectivity (E1/E3)
 var writeQueue = [];
+var failedWriteOps = [];
 var isOnline   = navigator.onLine;
 var syncCount  = 0;           // number of in-flight sync requests
 var currentUserEmail = '';    // set at login, used for activity logging
 
 // Queue persistence keys
 var QUEUE_KEY = 'ara_v4_writeQueue';
+var FAILED_QUEUE_KEY = 'ara_v4_failedWriteOps';
+function getWriteOpKey(op) {
+  if (!op || !op.type) return 'unknown';
+  if (op.type === 'att') return ['att', op.studentId, op.date].join(':');
+  if (op.type === 'pay') return ['pay', op.studentId, op.month, op.year].join(':');
+  return op.type;
+}
+function normalizeWriteOp(op) {
+  var normalized = Object.assign({}, op || {});
+  normalized.retries = Number(normalized.retries) || 0;
+  normalized.queuedAt = normalized.queuedAt || new Date().toISOString();
+  if (normalized.type === 'pay' && normalized.status === 'Paid') {
+    normalized.paidDate = normalized.paidDate || new Date().toISOString();
+  }
+  return normalized;
+}
 function saveQueue() {
   try { localStorage.setItem(QUEUE_KEY, JSON.stringify(writeQueue)); } catch(e) {}
+  try { localStorage.setItem(FAILED_QUEUE_KEY, JSON.stringify(failedWriteOps)); } catch(e) {}
 }
 function loadQueue() {
   try {
     var raw = localStorage.getItem(QUEUE_KEY);
-    if (raw) { var q = JSON.parse(raw); if (Array.isArray(q)) writeQueue = q; }
+    if (raw) {
+      var q = JSON.parse(raw);
+      if (Array.isArray(q)) writeQueue = q.map(normalizeWriteOp).slice(-QUEUE_LIMIT);
+    }
+  } catch(e) {}
+  try {
+    var failedRaw = localStorage.getItem(FAILED_QUEUE_KEY);
+    if (failedRaw) {
+      var failed = JSON.parse(failedRaw);
+      if (Array.isArray(failed)) failedWriteOps = failed.map(normalizeWriteOp).slice(-QUEUE_LIMIT);
+    }
   } catch(e) {}
 }
-function queueWrite(op) { writeQueue.push(op); saveQueue(); }
+function clearFailedWrite(op) {
+  var key = getWriteOpKey(op);
+  failedWriteOps = failedWriteOps.filter(function(existing) { return getWriteOpKey(existing) !== key; });
+}
+function markFailedWrite(op) {
+  var normalized = normalizeWriteOp(op);
+  clearFailedWrite(normalized);
+  failedWriteOps.push(normalized);
+  if (failedWriteOps.length > QUEUE_LIMIT) failedWriteOps = failedWriteOps.slice(failedWriteOps.length - QUEUE_LIMIT);
+}
+function queueWrite(op) {
+  var normalized = normalizeWriteOp(op);
+  var key = getWriteOpKey(normalized);
+  var replaced = false;
+  clearFailedWrite(normalized);
+  writeQueue = writeQueue.filter(function(existing) {
+    if (getWriteOpKey(existing) !== key) return true;
+    replaced = true;
+    return false;
+  });
+  writeQueue.push(normalized);
+  if (writeQueue.length > QUEUE_LIMIT) writeQueue = writeQueue.slice(writeQueue.length - QUEUE_LIMIT);
+  saveQueue();
+  return { replaced: replaced, size: writeQueue.length };
+}
+
+function hasQueuedWriteOp(op) {
+  var key = getWriteOpKey(op);
+  return writeQueue.some(function(existing) { return getWriteOpKey(existing) === key; });
+}
+
+function hasFailedWriteOp(op) {
+  var key = getWriteOpKey(op);
+  return failedWriteOps.some(function(existing) { return getWriteOpKey(existing) === key; });
+}
+
+function getPendingAttendanceStatus(studentId, date) {
+  var pendingOp = writeQueue.filter(function(op) {
+    return op.type === 'att' && op.studentId === studentId && op.date === date;
+  })[0];
+  return pendingOp ? pendingOp.status : undefined;
+}
+
+function getFailedAttendanceStatus(studentId, date) {
+  var failedOp = failedWriteOps.filter(function(op) {
+    return op.type === 'att' && op.studentId === studentId && op.date === date;
+  })[0];
+  return failedOp ? failedOp.status : undefined;
+}
+
+function getPendingPaymentStatus(studentId, month, year) {
+  var pendingOp = writeQueue.filter(function(op) {
+    return op.type === 'pay' && op.studentId === studentId && op.month === month && op.year === year;
+  })[0];
+  return pendingOp ? pendingOp.status : undefined;
+}
+
+function getFailedPaymentStatus(studentId, month, year) {
+  var failedOp = failedWriteOps.filter(function(op) {
+    return op.type === 'pay' && op.studentId === studentId && op.month === month && op.year === year;
+  })[0];
+  return failedOp ? failedOp.status : undefined;
+}
+
+function getPendingPaymentCount(studentId) {
+  return writeQueue.filter(function(op) {
+    return op.type === 'pay' && op.studentId === studentId;
+  }).length;
+}
+
+function getFailedPaymentCount(studentId) {
+  return failedWriteOps.filter(function(op) {
+    return op.type === 'pay' && op.studentId === studentId;
+  }).length;
+}
+
+function refreshPendingViews() {
+  if (!DATA) return;
+  renderStatusSummary();
+  if (document.getElementById('tab-attendance') && !document.getElementById('tab-attendance').hidden) renderAtt();
+  if (document.getElementById('tab-payments') && !document.getElementById('tab-payments').hidden) renderPay();
+}
 
 // Sync indicator helpers
 function setSyncing(delta) {
@@ -70,7 +188,7 @@ function debounce(fn, ms) {
 }
 
 function fetchWithTimeout(url, options, timeoutMs) {
-  timeoutMs = timeoutMs || 15000;
+  timeoutMs = timeoutMs || REQUEST_TIMEOUT_MS;
   var controller = new AbortController();
   var id = setTimeout(function() { controller.abort(); }, timeoutMs);
   options = options || {};
@@ -125,10 +243,15 @@ function showBootError(msg) {
   showConnectScreen();
   var el = document.getElementById('connect-err');
   el.style.display = 'block';
-  el.innerHTML = '❌ ' + esc(msg)
-    + '<br><br><button data-action="reload" style="background:var(--accent);color:white;border:none;'
-    + 'border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)">'
-    + '🔄 Reload</button>';
+  el.textContent = '❌ ' + msg;
+  el.appendChild(document.createElement('br'));
+  el.appendChild(document.createElement('br'));
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'inline-action-btn';
+  btn.setAttribute('data-action', 'reload');
+  btn.textContent = '🔄 Reload';
+  el.appendChild(btn);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -186,7 +309,7 @@ async function doLogin() {
     showConnectErr('Connection error. Please check your internet and try again.');
   }
   btn.disabled = false;
-  btn.innerHTML = '🔓 &nbsp; Login';
+  btn.textContent = '🔓 Login';
 }
 
 async function disconnectSupabase() {
@@ -401,103 +524,98 @@ function sbHeaders(token, prefer) {
   };
 }
 
-// ═══════════════════════════════════════════════════════════
-// SUPABASE — WRITE ATTENDANCE
-// ═══════════════════════════════════════════════════════════
-async function writeAtt(studentId, date, status) {
-  if (!sb) return;
+function buildWriteRequest(op, headers) {
+  if (op.type === 'att') {
+    if (op.status === null) {
+      return {
+        url: SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + encodeURIComponent(op.studentId) + '&date=eq.' + encodeURIComponent(op.date),
+        options: { method: 'DELETE', headers: headers }
+      };
+    }
+    return {
+      url: SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date',
+      options: {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ student_id: op.studentId, date: op.date, status: op.status })
+      }
+    };
+  }
+  return {
+    url: SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year',
+    options: {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        student_id: op.studentId,
+        month: op.month,
+        year: op.year,
+        amount: op.amount,
+        paid: op.status === 'Paid',
+        paid_date: op.status === 'Paid' ? (op.paidDate || new Date().toISOString()) : null,
+        waived: op.status === 'Waived',
+        status: (op.status === 'Paid' || op.status === 'Waived') ? 'final' : 'disputed'
+      })
+    }
+  };
+}
+
+async function sendWriteOp(op, token) {
+  var request = buildWriteRequest(op, sbHeaders(token));
+  var resp = await fetchWithTimeout(request.url, request.options);
+  return { ok: !!(resp && resp.ok), status: resp ? resp.status : 0 };
+}
+
+async function performWrite(op) {
+  if (!sb) return { ok: false, queued: false, reason: 'not-ready' };
+  var normalized = normalizeWriteOp(op);
   if (!isOnline) {
-    queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
-    toast('📡 Offline — will sync when back online');
-    return;
+    queueWrite(normalized);
+    return { ok: false, queued: true, reason: 'offline' };
   }
   setSyncing(1);
   try {
     var token = await getToken();
-    var headers = sbHeaders(token);
-    var resp;
-    if (status === null) {
-      resp = await fetchWithTimeout(
-        SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + encodeURIComponent(studentId) + '&date=eq.' + encodeURIComponent(date),
-        { method: 'DELETE', headers: headers }
-      );
-    } else {
-      resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date', {
-        method:  'POST',
-        headers: headers,
-        body:    JSON.stringify({ student_id: studentId, date: date, status: status })
-      });
+    var result = await sendWriteOp(normalized, token);
+    if (!result.ok) {
+      queueWrite(normalized);
+      saveQueue();
+      return { ok: false, queued: true, reason: 'server' };
     }
-    if (!resp.ok) {
-      var err = await resp.json().catch(function() { return {}; });
-      console.error('writeAtt failed:', resp.status);
-      queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
-      toast('⚠️ Sync error — will retry automatically');
-    }
+    clearFailedWrite(normalized);
+    saveQueue();
+    return { ok: true, queued: false, reason: null };
   } catch(e) {
-    if (e.name === 'AbortError') {
-      queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
-      toast('⚠️ Request timed out — will retry');
-    } else if (e.message === 'Session expired') {
-      // handled by getToken
-    } else {
-      console.error('writeAtt error:', e);
-      queueWrite({ type: 'att', studentId: studentId, date: date, status: status });
-      toast('⚠️ Sync error — will retry when online');
-    }
+    if (e.message === 'Session expired') return { ok: false, queued: false, reason: 'session' };
+    queueWrite(normalized);
+    saveQueue();
+    return { ok: false, queued: true, reason: e.name === 'AbortError' ? 'timeout' : 'network' };
   } finally {
     setSyncing(-1);
   }
+}
+
+function notifyQueuedWrite(result) {
+  if (!result || !result.queued) return;
+  refreshPendingViews();
+  if (result.reason === 'offline') toast('📡 Saved locally — sync will resume when online');
+  else if (result.reason === 'timeout') toast('⏳ Saved locally — request timed out, will retry');
+  else if (result.reason === 'server') toast('⚠️ Saved locally — sync retry queued');
+  else if (result.reason === 'network') toast('📡 Saved locally — sync will retry automatically');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUPABASE — WRITE ATTENDANCE
+// ═══════════════════════════════════════════════════════════
+async function writeAtt(studentId, date, status) {
+  return performWrite({ type: 'att', studentId: studentId, date: date, status: status });
 }
 
 // ═══════════════════════════════════════════════════════════
 // SUPABASE — WRITE PAYMENT
 // ═══════════════════════════════════════════════════════════
 async function writePay(studentId, month, year, status, amount) {
-  if (!sb) return;
-  if (!isOnline) {
-    queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
-    toast('📡 Offline — will sync when back online');
-    return;
-  }
-  setSyncing(1);
-  try {
-    var token = await getToken();
-    var headers = sbHeaders(token);
-    var resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year', {
-      method:  'POST',
-      headers: headers,
-      body:    JSON.stringify({
-        student_id: studentId,
-        month:      month,
-        year:       year,
-        amount:     amount,
-        paid:       status === 'Paid',
-        paid_date:  status === 'Paid' ? new Date().toISOString() : null,
-        waived:     status === 'Waived',
-        status:     (status === 'Paid' || status === 'Waived') ? 'final' : 'disputed'
-      })
-    });
-    if (!resp.ok) {
-      var err = await resp.json().catch(function() { return {}; });
-      console.error('writePay failed:', resp.status);
-      queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
-      toast('⚠️ Sync error — will retry automatically');
-    }
-  } catch(e) {
-    if (e.name === 'AbortError') {
-      queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
-      toast('⚠️ Request timed out — will retry');
-    } else if (e.message === 'Session expired') {
-      // handled by getToken
-    } else {
-      console.error('writePay error:', e);
-      queueWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
-      toast('⚠️ Sync error — will retry when online');
-    }
-  } finally {
-    setSyncing(-1);
-  }
+  return performWrite({ type: 'pay', studentId: studentId, month: month, year: year, status: status, amount: amount });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -506,50 +624,69 @@ async function writePay(studentId, month, year, status, amount) {
 async function flushWriteQueue() {
   if (!isOnline || writeQueue.length === 0) return;
   var pending = writeQueue.splice(0);
+  var originalCount = pending.length;
   var failed = [];
-  for (var i = 0; i < pending.length; i++) {
-    var op = pending[i];
-    try {
-      var token = await getToken();
-      var headers = sbHeaders(token);
-      var resp;
-      if (op.type === 'att') {
-        if (op.status === null) {
-          resp = await fetchWithTimeout(
-            SUPABASE_URL + '/rest/v1/attendance?student_id=eq.' + encodeURIComponent(op.studentId) + '&date=eq.' + encodeURIComponent(op.date),
-            { method: 'DELETE', headers: headers }
-          );
-        } else {
-          resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/attendance?on_conflict=student_id,date', {
-            method: 'POST', headers: headers,
-            body: JSON.stringify({ student_id: op.studentId, date: op.date, status: op.status })
-          });
-        }
-      } else if (op.type === 'pay') {
-        resp = await fetchWithTimeout(SUPABASE_URL + '/rest/v1/payments?on_conflict=student_id,month,year', {
-          method: 'POST', headers: headers,
-          body: JSON.stringify({
-            student_id: op.studentId, month: op.month, year: op.year, amount: op.amount,
-            paid: op.status === 'Paid', paid_date: op.status === 'Paid' ? new Date().toISOString() : null,
-            waived: op.status === 'Waived',
-            status: (op.status === 'Paid' || op.status === 'Waived') ? 'final' : 'disputed'
-          })
+  var exhausted = [];
+  try {
+    var token = await getToken();
+    while (pending.length) {
+      var batch = pending.splice(0, WRITE_BATCH_SIZE);
+      setSyncing(batch.length);
+      try {
+        var batchResults = await Promise.all(batch.map(function(op) {
+          return sendWriteOp(op, token).catch(function() { return { ok: false }; });
+        }));
+        batch.forEach(function(op, index) {
+          if (!batchResults[index] || !batchResults[index].ok) {
+            var retryOp = normalizeWriteOp(op);
+            retryOp.retries += 1;
+            if (retryOp.retries <= WRITE_RETRY_LIMIT) failed.push(retryOp);
+            else exhausted.push(retryOp);
+          } else {
+            clearFailedWrite(op);
+          }
         });
+      } finally {
+        setSyncing(-batch.length);
       }
-      if (resp && !resp.ok) { failed.push(op); }
-    } catch(e) {
-      failed.push(op);
     }
+  } catch(e) {
+    if (e.message === 'Session expired') {
+      writeQueue = pending.concat(writeQueue);
+      saveQueue();
+      return;
+    }
+    failed = pending.concat(failed).map(function(op) {
+      var retryOp = normalizeWriteOp(op);
+      retryOp.retries += 1;
+      return retryOp;
+    }).filter(function(op) {
+      if (op.retries <= WRITE_RETRY_LIMIT) return true;
+      exhausted.push(op);
+      return false;
+    });
   }
+  exhausted.forEach(markFailedWrite);
   writeQueue = failed.concat(writeQueue);
+  if (writeQueue.length > QUEUE_LIMIT) writeQueue = writeQueue.slice(writeQueue.length - QUEUE_LIMIT);
   saveQueue();
-  if (failed.length === 0 && pending.length > 0) {
+  refreshPendingViews();
+  if (failed.length === 0 && originalCount > 0) {
     toast('✅ All queued changes synced');
-    renderStatusSummary();
-  } else if (failed.length > 0) {
-    toast('⚠️ ' + failed.length + ' change(s) failed to sync');
-    renderStatusSummary();
+  } else if (failed.length > 0 || exhausted.length > 0) {
+    toast('⚠️ ' + (failed.length + exhausted.length) + ' change(s) need attention');
   }
+}
+
+function retryFailedWrites() {
+  if (failedWriteOps.length === 0) return 0;
+  var ops = failedWriteOps.splice(0);
+  ops.forEach(function(op) {
+    op.retries = 0;
+    queueWrite(op);
+  });
+  saveQueue();
+  return ops.length;
 }
 
 function updateOfflineBanner() {
@@ -558,7 +695,11 @@ function updateOfflineBanner() {
   var pill = document.getElementById('topbar-status');
   if (pill) {
     pill.className = isOnline ? 'live' : 'offline';
-    pill.innerHTML = '<span class="dot"></span>' + (isOnline ? 'Live' : 'Offline');
+    pill.textContent = '';
+    var dot = document.createElement('span');
+    dot.className = 'dot';
+    pill.appendChild(dot);
+    pill.appendChild(document.createTextNode(isOnline ? 'Live' : 'Offline'));
   }
 }
 window.addEventListener('online', function() {
@@ -620,11 +761,18 @@ function tryRestore() {
 // ═══════════════════════════════════════════════════════════
 function switchTab(name) {
   var tabs = ['attendance','scan','payments','addstudent','status'];
-  tabs.forEach(function(t, i) {
-    document.querySelectorAll('.tab')[i].classList.toggle('active', t === name);
+  if (!tabs.includes(name)) return;
+  document.querySelectorAll('.tab[data-tab]').forEach(function(tab) {
+    var isActive = tab.getAttribute('data-tab') === name;
+    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    tab.setAttribute('tabindex', isActive ? '0' : '-1');
   });
-  document.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
-  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(function(tc) {
+    var isActive = tc.id === 'tab-' + name;
+    tc.classList.toggle('active', isActive);
+    tc.hidden = !isActive;
+  });
   if (name !== 'scan') stopScanner();
   if (name === 'scan')        updateScanBadge();
   if (name === 'status')      renderStatusSummary();
@@ -655,15 +803,21 @@ function isValidISO(v) {
 }
 
 function openDateModal() {
+  lastFocusedBeforeModal = document.activeElement;
   var inp = document.getElementById('d-input');
   var today = todayISO();
   inp.value = today;
   onDateInput(today);
-  document.getElementById('date-modal').style.display = 'flex';
+  var modal = document.getElementById('date-modal');
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
   setTimeout(function() { inp.focus(); inp.select(); }, 80);
 }
 function closeDateModal() {
-  document.getElementById('date-modal').style.display = 'none';
+  var modal = document.getElementById('date-modal');
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+  if (lastFocusedBeforeModal && lastFocusedBeforeModal.focus) lastFocusedBeforeModal.focus();
 }
 function onDateInput(val) {
   var digits = val.replace(/\D/g, '');
@@ -705,13 +859,244 @@ async function selectDay(d) {
 
 function renderDayBar() {
   var bar = document.getElementById('day-bar');
-  var chips = classDays.map(function(d) {
-    return '<div class="day-chip'+(d===activeDay?' active':'')+'" data-action="selectDay" data-day="'+d+'">'+fmtDate(d)+'</div>';
-  }).join('');
-  bar.innerHTML = chips + '<div class="day-chip add-btn" data-action="openDateModal">+ New Day</div>';
+  clearChildren(bar);
+  classDays.forEach(function(d) {
+    var chip = createElem('button', 'day-chip' + (d === activeDay ? ' active' : ''), fmtDate(d));
+    chip.type = 'button';
+    chip.setAttribute('data-action', 'selectDay');
+    chip.setAttribute('data-day', d);
+    chip.setAttribute('aria-pressed', d === activeDay ? 'true' : 'false');
+    bar.appendChild(chip);
+  });
+  var addBtn = createElem('button', 'day-chip add-btn', '+ New Day');
+  addBtn.type = 'button';
+  addBtn.setAttribute('data-action', 'openDateModal');
+  bar.appendChild(addBtn);
   var hasDays = classDays.length > 0;
   document.getElementById('no-day-msg').style.display  = hasDays ? 'none' : 'block';
   document.getElementById('att-body').style.display    = hasDays ? 'block' : 'none';
+}
+
+function clearChildren(el) {
+  while (el && el.firstChild) el.removeChild(el.firstChild);
+}
+
+function createElem(tag, className, text) {
+  var el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined && text !== null) el.textContent = text;
+  return el;
+}
+
+function setDatasetAttrs(el, attrs) {
+  Object.keys(attrs || {}).forEach(function(key) {
+    if (attrs[key] !== undefined && attrs[key] !== null) el.setAttribute('data-' + key, String(attrs[key]));
+  });
+}
+
+function renderEmptyState(list, icon, text) {
+  clearChildren(list);
+  var wrap = createElem('div', 'empty');
+  wrap.appendChild(createElem('div', 'big', icon));
+  wrap.appendChild(document.createTextNode(text));
+  list.appendChild(wrap);
+}
+
+function getInitials(name) {
+  return String(name || '').split(' ').map(function(w) { return w[0] || ''; }).slice(0, 2).join('').toUpperCase();
+}
+
+function createActionButton(label, className, action, attrs) {
+  var btn = createElem('button', className, label);
+  btn.type = 'button';
+  btn.setAttribute('data-action', action);
+  setDatasetAttrs(btn, attrs);
+  return btn;
+}
+
+function createStudentCardShell(options) {
+  var card = createElem('div', 'student-card');
+  if (options.cardClass) card.classList.add(options.cardClass);
+  if (options.open) card.classList.add('open');
+  if (options.pending) card.classList.add('sync-pending');
+  if (options.failed) card.classList.add('sync-failed');
+
+  var main = createElem('div', 'sc-main');
+  main.setAttribute('role', 'button');
+  main.setAttribute('tabindex', '0');
+  main.setAttribute('aria-expanded', options.open ? 'true' : 'false');
+  main.setAttribute('data-action', 'togExp');
+  setDatasetAttrs(main, { type: options.type, id: options.id });
+
+  main.appendChild(createElem('div', 'sc-av', getInitials(options.name)));
+
+  var info = createElem('div', 'sc-info');
+  info.appendChild(createElem('div', 'sc-name', options.name));
+  info.appendChild(createElem('div', 'sc-sub', options.subtext || '—'));
+  main.appendChild(info);
+
+  if (options.badge) main.appendChild(options.badge);
+  if (options.pendingBadge) main.appendChild(options.pendingBadge);
+  card.appendChild(main);
+  return { card: card, main: main };
+}
+
+function createPendingBadge(text) {
+  return createElem('div', 'sc-sync', text || 'Sync pending');
+}
+
+function buildAttendanceCard(student, status, open) {
+  var pendingStatus = getPendingAttendanceStatus(student.id, activeDay);
+  var failedStatus = getFailedAttendanceStatus(student.id, activeDay);
+  var pending = pendingStatus !== undefined;
+  var failed = failedStatus !== undefined;
+  var cardClass = status === 'present' ? 'present' : status === 'absent' ? 'absent' : '';
+  var badgeClass = status === 'present' ? 'sp' : status === 'absent' ? 'sa' : 'sn';
+  var badgeText = status === 'present' ? 'Present' : status === 'absent' ? 'Absent' : '—';
+  var badge = createElem('div', 'sc-st ' + badgeClass, badgeText);
+  var shell = createStudentCardShell({
+    cardClass: cardClass,
+    open: open,
+    pending: pending,
+    failed: failed,
+    type: 'att',
+    id: student.id,
+    name: student.name,
+    subtext: student.student_id || '—',
+    badge: badge,
+    pendingBadge: failed ? createPendingBadge('Sync failed') : (pending ? createPendingBadge('Sync pending') : null)
+  });
+
+  var actions = createElem('div', 'sc-acts');
+  actions.appendChild(createActionButton('✅ Present', 'act a-present', 'setAtt', { id: student.id, status: 'present' }));
+  actions.appendChild(createActionButton('❌ Absent', 'act a-absent', 'setAtt', { id: student.id, status: 'absent' }));
+  actions.appendChild(createActionButton('↩', 'act a-ghost act-compact', 'setAtt', { id: student.id, status: '' }));
+  shell.card.appendChild(actions);
+  return shell.card;
+}
+
+function createPayCell(sid, monthData) {
+  var key = payKey(sid, monthData.month, monthData.year);
+  var state = payments[key] || monthData.status;
+  var pendingState = getPendingPaymentStatus(sid, monthData.month, monthData.year);
+  var failedState = getFailedPaymentStatus(sid, monthData.month, monthData.year);
+  var isPaid = state === 'Paid';
+  var isWaived = state === 'Waived';
+  var cls = isPaid ? 'pc-paid' : isWaived ? 'pc-waived' : 'pc-pending';
+  var cell = createElem('div', 'pay-cell ' + cls);
+  if (pendingState !== undefined) cell.classList.add('pc-sync-pending');
+  if (failedState !== undefined) cell.classList.add('pc-sync-failed');
+  if (isWaived) {
+    cell.setAttribute('aria-disabled', 'true');
+  } else {
+    cell.setAttribute('role', 'button');
+    cell.setAttribute('tabindex', '0');
+    cell.setAttribute('data-action', 'setPay');
+    setDatasetAttrs(cell, {
+      id: sid,
+      month: monthData.month,
+      year: monthData.year,
+      status: isPaid ? 'Pending' : 'Paid'
+    });
+  }
+  cell.appendChild(createElem('span', 'pc-mon', MABBR[monthData.month - 1]));
+  cell.appendChild(createElem('span', 'pc-ico', isPaid ? '✓' : isWaived ? '·' : ''));
+  if (failedState !== undefined) cell.title = 'Sync failed';
+  else if (pendingState !== undefined) cell.title = 'Queued for sync';
+  return cell;
+}
+
+function buildPayGridNode(sid, months) {
+  var grid = createElem('div', 'pay-grid');
+  months.forEach(function(monthData) {
+    grid.appendChild(createPayCell(sid, monthData));
+  });
+  return grid;
+}
+
+function createPayYearRow(studentId, year, countText, statusNode, isOpen) {
+  var row = createElem('div', 'pay-year-row');
+  row.setAttribute('role', 'button');
+  row.setAttribute('tabindex', '0');
+  row.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+  row.setAttribute('data-action', 'togYearExp');
+  setDatasetAttrs(row, { id: studentId, year: year });
+
+  var label = createElem('span', 'yr-label');
+  label.appendChild(createElem('span', 'yr-chev', isOpen ? '▾' : '▸'));
+  label.appendChild(document.createTextNode(year + ' — ' + countText));
+  row.appendChild(label);
+
+  var badge = createElem('span', 'yr-badge');
+  badge.appendChild(statusNode);
+  row.appendChild(badge);
+  return row;
+}
+
+function buildPaymentCard(student, open) {
+  var months = student.due_months || [];
+  var pendingOps = getPendingPaymentCount(student.id);
+  var failedOps = getFailedPaymentCount(student.id);
+  var pendingCount = months.filter(function(m) {
+    return (payments[payKey(student.id, m.month, m.year)] || m.status) === 'Pending';
+  }).length;
+  var allPaid = pendingCount === 0;
+  var totalAmt = months.filter(function(m) {
+    return (payments[payKey(student.id, m.month, m.year)] || m.status) === 'Pending';
+  }).reduce(function(sum, m) { return sum + (m.amount || 0); }, 0);
+  var badge = createElem('div', 'sc-st ' + (allPaid ? 'sk' : 'sq'), allPaid ? 'All Paid' : pendingCount + ' unpaid');
+  var shell = createStudentCardShell({
+    cardClass: allPaid ? 'paid' : '',
+    open: open,
+    pending: pendingOps > 0,
+    failed: failedOps > 0,
+    type: 'pay',
+    id: student.id,
+    name: student.name,
+    subtext: student.student_id || '—',
+    badge: badge,
+    pendingBadge: failedOps > 0 ? createPendingBadge(failedOps + ' failed') : (pendingOps > 0 ? createPendingBadge(pendingOps + ' queued') : null)
+  });
+
+  if (!open) return shell.card;
+
+  var yearMap = {};
+  months.forEach(function(m) {
+    if (!yearMap[m.year]) yearMap[m.year] = [];
+    yearMap[m.year].push(m);
+  });
+
+  Object.keys(yearMap).map(Number).sort().forEach(function(year) {
+    var yearMonths = yearMap[year];
+    var paidCount = yearMonths.filter(function(m) {
+      var state = payments[payKey(student.id, m.month, m.year)] || m.status;
+      return state === 'Paid' || state === 'Waived';
+    }).length;
+    var totalCount = yearMonths.length;
+    var yearAllPaid = paidCount === totalCount;
+    var pendingYearCount = totalCount - paidCount;
+
+    if (year === DATA.year) {
+      shell.card.appendChild(createElem('div', 'pay-yr-hint', year + ' — tap pending to mark paid'));
+      shell.card.appendChild(buildPayGridNode(student.id, yearMonths));
+      return;
+    }
+
+    var countText = totalCount === 12 ? 'all 12 months' : totalCount + ' month' + (totalCount > 1 ? 's' : '');
+    var statusNode = createElem('span', yearAllPaid ? 'summary-accent-good' : 'summary-accent-warn', yearAllPaid ? 'All paid ✓' : paidCount + ' paid, ' + pendingYearCount + ' unpaid');
+    var yearKey = student.id + '_' + year;
+    var openYear = !!expanded.payYear[yearKey];
+    shell.card.appendChild(createPayYearRow(student.id, year, countText, statusNode, openYear));
+    if (openYear) shell.card.appendChild(buildPayGridNode(student.id, yearMonths));
+  });
+
+  if (!allPaid) {
+    var footer = createElem('div', 'pay-footer');
+    footer.appendChild(createElem('span', '', 'Total due'));
+    footer.appendChild(createElem('span', '', 'Rs. ' + totalAmt.toLocaleString()));
+    shell.card.appendChild(footer);
+  }
+  return shell.card;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -724,7 +1109,10 @@ function toggleAttFilter(type) {
 function updateAttFilterUI() {
   ['present','absent','unmarked'].forEach(function(f) {
     var el = document.getElementById('fc-' + f);
-    if (el) el.classList.toggle('filter-on', attFilter === f);
+    if (el) {
+      el.classList.toggle('filter-on', attFilter === f);
+      el.setAttribute('aria-pressed', attFilter === f ? 'true' : 'false');
+    }
   });
 }
 
@@ -753,23 +1141,13 @@ function renderAtt() {
     }
     return true;
   });
-  if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
-  list.innerHTML = stus.map(function(s) {
-    var st=dm[s.id], cc=st==='present'?'present':st==='absent'?'absent':'', isO=expanded.att===s.id;
-    var sl=st==='present'?'Present':st==='absent'?'Absent':'—', sc=st==='present'?'sp':st==='absent'?'sa':'sn';
-    var ini=s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
-    return '<div class="student-card '+cc+(isO?' open':'')+'">'
-      +'<div class="sc-main" data-action="togExp" data-type="att" data-id="'+s.id+'">'
-        +'<div class="sc-av">'+ini+'</div>'
-        +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div><div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
-        +'<div class="sc-st '+sc+'">'+sl+'</div>'
-      +'</div>'
-      +'<div class="sc-acts">'
-        +'<button class="act a-present" data-action="setAtt" data-id="'+s.id+'" data-status="present">✅ Present</button>'
-        +'<button class="act a-absent"  data-action="setAtt" data-id="'+s.id+'" data-status="absent">❌ Absent</button>'
-        +'<button class="act a-ghost"   data-action="setAtt" data-id="'+s.id+'" data-status="" style="flex:.5">↩</button>'
-      +'</div></div>';
-  }).join('');
+  if (!stus.length) { renderEmptyState(list, '🔍', 'No students found'); return; }
+  clearChildren(list);
+  var frag = document.createDocumentFragment();
+  stus.forEach(function(s) {
+    frag.appendChild(buildAttendanceCard(s, dm[s.id], expanded.att === s.id));
+  });
+  list.appendChild(frag);
 }
 
 function getDueInfo(sid) {
@@ -792,7 +1170,7 @@ function setAtt(id, val) {
   if (val === null) delete attendance[activeDay][id]; else attendance[activeDay][id] = val;
   expanded.att = null;
   save(); renderAtt();
-  writeAtt(id, activeDay, val);   // fire-and-forget
+  writeAtt(id, activeDay, val).then(notifyQueuedWrite);
   var _attStudent = DATA && DATA.students.filter(function(x){ return x.id===id; })[0];
   logActivity('attendance', (_attStudent ? _attStudent.name : String(id)) + ' → ' + (val || 'cleared') + ' on ' + activeDay);
   if (val === 'present') {
@@ -888,14 +1266,16 @@ function resumeScanning() {
 function showScanErr(msg, showRetry) {
   var el = document.getElementById('scan-err');
   el.style.display = 'block';
-  if (showRetry) {
-    el.innerHTML = esc(msg)
-      + '<br><br><button data-action="retryCamera" style="background:var(--accent);color:white;border:none;'
-      + 'border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font)">'
-      + '📷 Retry Camera</button>';
-  } else {
-    el.textContent = msg;
-  }
+  el.textContent = msg;
+  if (!showRetry) return;
+  el.appendChild(document.createElement('br'));
+  el.appendChild(document.createElement('br'));
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'inline-action-btn';
+  btn.setAttribute('data-action', 'retryCamera');
+  btn.textContent = '📷 Retry Camera';
+  el.appendChild(btn);
 }
 function retryCamera() {
   var errEl = document.getElementById('scan-err');
@@ -915,12 +1295,12 @@ function stopScanner() {
 function handleQRScan(value) {
   if (!DATA || !activeDay) return;
   // Sanitize: ignore blank, suspiciously long, or non-alphanumeric values
-  if (!value || value.length > 100) { console.warn('QR value ignored (too long)'); return; }
+  if (!value || value.length > QR_MAX_LENGTH) { console.warn('QR value ignored (too long)'); return; }
   value = value.trim();
   if (!/^[a-zA-Z0-9\-_]+$/.test(value)) { console.warn('QR value ignored (invalid chars)'); return; }
   var now = Date.now();
-  if (now - lastScannedAt < 1500) return;               // universal cooldown between any two scans
-  if (value === lastScanned && now - lastScannedAt < 4000) return;
+  if (now - lastScannedAt < SCAN_COOLDOWN_MS) return;
+  if (value === lastScanned && now - lastScannedAt < DUP_SCAN_WINDOW_MS) return;
   lastScanned = value; lastScannedAt = now;
   var s = DATA.students.filter(function(s) {
     return (s.student_id||'').trim().toLowerCase() === value.toLowerCase() || String(s.id) === value;
@@ -948,7 +1328,7 @@ function handleQRScan(value) {
   if (!attendance[activeDay]) attendance[activeDay] = {};
   attendance[activeDay][s.id] = 'present';
   save();
-  writeAtt(s.id, activeDay, 'present');   // write to Supabase
+  writeAtt(s.id, activeDay, 'present').then(notifyQueuedWrite);
   logActivity('qr_scan', s.name + ' — marked Present on ' + activeDay);
   setTimeout(function() {
     frame.style.borderColor = 'var(--accent)';
@@ -968,13 +1348,9 @@ function handleQRScan(value) {
     setTimeout(function() { result.style.opacity='1'; result.style.transform='translateY(0)'; }, 20);
     var t=new Date(), ts=pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
     scanLog.unshift({ name:s.name, time:ts });
+    scanLog = scanLog.slice(0, SCAN_LOG_LIMIT);
     document.getElementById('scan-log-wrap').style.display='block';
-    document.getElementById('scan-log').innerHTML=scanLog.slice(0,20).map(function(r) {
-      return '<div style="display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:6px">'
-        +'<div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>'
-        +'<div style="flex:1;font-size:14px;font-weight:600">'+esc(r.name)+'</div>'
-        +'<div style="font-size:12px;color:var(--muted)">'+r.time+'</div></div>';
-    }).join('');
+    renderScanLog();
     renderAtt();
     setTimeout(function() {
       result.style.opacity='0'; result.style.transform='translateY(8px)';
@@ -994,31 +1370,22 @@ function togglePayFilter(type) {
 function updatePayFilterUI() {
   ['paid','pending'].forEach(function(f) {
     var el = document.getElementById('fc-' + f);
-    if (el) el.classList.toggle('filter-on', payFilter === f);
+    if (el) {
+      el.classList.toggle('filter-on', payFilter === f);
+      el.setAttribute('aria-pressed', payFilter === f ? 'true' : 'false');
+    }
   });
   var totalEl = document.getElementById('fc-total');
-  if (totalEl) totalEl.classList.remove('filter-on');
+  if (totalEl) {
+    totalEl.classList.remove('filter-on');
+    totalEl.setAttribute('aria-pressed', 'false');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 // PAYMENTS — RENDER
 // ═══════════════════════════════════════════════════════════
 function payKey(sid, mn, yr) { return sid + '_' + mn + '_' + yr; }
-
-function buildPayGrid(sid, yMonths) {
-  return '<div class="pay-grid">' + yMonths.map(function(m) {
-    var key = payKey(sid, m.month, m.year), st = payments[key] || m.status;
-    var isPaid = st === 'Paid', isWaived = st === 'Waived';
-    var cls = isPaid ? 'pc-paid' : isWaived ? 'pc-waived' : 'pc-pending';
-    var ico = isPaid ? '✓' : isWaived ? '·' : '';
-    var attrs = isWaived ? '' : ' data-action="setPay" data-id="' + sid
-      + '" data-month="' + m.month + '" data-year="' + m.year
-      + '" data-status="' + (isPaid ? 'Pending' : 'Paid') + '"';
-    return '<div class="pay-cell ' + cls + '"' + attrs + '>'
-      + '<span class="pc-mon">' + MABBR[m.month - 1] + '</span>'
-      + '<span class="pc-ico">' + ico + '</span></div>';
-  }).join('') + '</div>';
-}
 
 function renderPay() {
   if (!DATA) return;
@@ -1047,70 +1414,14 @@ function renderPay() {
     }
     return true;
   });
-  if (!stus.length) { list.innerHTML='<div class="empty"><div class="big">🔍</div>No students found</div>'; return; }
+  if (!stus.length) { renderEmptyState(list, '🔍', 'No students found'); return; }
 
-  list.innerHTML = stus.map(function(s) {
-    var months = s.due_months || [];
-    var isO    = expanded.pay === s.id;
-    var ini    = s.name.split(' ').map(function(w){return w[0]||'';}).slice(0,2).join('').toUpperCase();
-    var pendingCount = months.filter(function(m) {
-      return (payments[payKey(s.id,m.month,m.year)]||m.status)==='Pending';
-    }).length;
-    var allPaid = pendingCount === 0;
-    var totalAmt = months.filter(function(m) {
-      return (payments[payKey(s.id,m.month,m.year)]||m.status)==='Pending';
-    }).reduce(function(sum,m){ return sum+(m.amount||0); }, 0);
-    var badge = allPaid
-      ? '<div class="sc-st sk">All Paid</div>'
-      : '<div class="sc-st sq">'+pendingCount+' unpaid</div>';
-    // ── Group months by year ──
-    var yearMap = {};
-    months.forEach(function(m) {
-      if (!yearMap[m.year]) yearMap[m.year] = [];
-      yearMap[m.year].push(m);
-    });
-    var years = Object.keys(yearMap).map(Number).sort();
-    var curYrVal = DATA.year;
-
-    var yearSections = years.map(function(yr) {
-      var yMonths = yearMap[yr];
-      var paidC = yMonths.filter(function(m) { var st = payments[payKey(s.id,m.month,m.year)] || m.status; return st === 'Paid' || st === 'Waived'; }).length;
-      var totalC = yMonths.length;
-      var yrAllPaid = paidC === totalC;
-      var pendC = totalC - paidC;
-
-      if (yr === curYrVal) {
-        // Current year: always show grid
-        var hint = '<div class="pay-yr-hint">' + yr + ' — tap pending to mark paid</div>';
-        return hint + buildPayGrid(s.id, yMonths);
-      } else {
-        // Past year: collapsed summary, tappable to expand
-        var yrKey = s.id + '_' + yr;
-        var yrOpen = expanded.payYear[yrKey];
-        var countTxt = totalC === 12 ? 'all 12 months' : totalC + ' month' + (totalC > 1 ? 's' : '');
-        var statusTxt = yrAllPaid
-          ? '<span style="color:var(--green)">All paid ✓</span>'
-          : '<span style="color:var(--amber)">' + paidC + ' paid, ' + pendC + ' unpaid</span>';
-        var chevron = yrOpen ? '▾' : '▸';
-        var row = '<div class="pay-year-row" data-action="togYearExp" data-id="' + s.id + '" data-year="' + yr + '">'
-          + '<span class="yr-label"><span class="yr-chev">' + chevron + '</span>' + yr + ' — ' + countTxt + '</span>'
-          + '<span class="yr-badge">' + statusTxt + '</span></div>';
-        return row + (yrOpen ? buildPayGrid(s.id, yMonths) : '');
-      }
-    }).join('');
-
-    var footer = (!allPaid && isO)
-      ? '<div class="pay-footer"><span>Total due</span><span>Rs. ' + totalAmt.toLocaleString() + '</span></div>'
-      : '';
-    return '<div class="student-card '+(allPaid?'paid':'')+(isO?' open':'')+'">'
-      +'<div class="sc-main" data-action="togExp" data-type="pay" data-id="'+s.id+'">'
-        +'<div class="sc-av">'+ini+'</div>'
-        +'<div class="sc-info"><div class="sc-name">'+esc(s.name)+'</div>'
-        +'<div class="sc-sub">'+esc(s.student_id||'—')+'</div></div>'
-        +badge+'</div>'
-      +(isO ? yearSections + footer : '')
-      +'</div>';
-  }).join('');
+  clearChildren(list);
+  var frag = document.createDocumentFragment();
+  stus.forEach(function(s) {
+    frag.appendChild(buildPaymentCard(s, expanded.pay === s.id));
+  });
+  list.appendChild(frag);
 }
 
 // ── setPay: optimistic update → Supabase write ──
@@ -1120,7 +1431,7 @@ function setPay(sid, mn, yr, val) {
   save(); renderPay();
   var m = s && (s.due_months||[]).filter(function(m){ return m.month===mn && m.year===yr; })[0];
   var amount = (m && m.amount) || (s && s.fee_amount) || 0;
-  writePay(sid, mn, yr, val, amount);   // fire-and-forget
+  writePay(sid, mn, yr, val, amount).then(notifyQueuedWrite);
   logActivity('payment', (s ? s.name : String(sid)) + ' — ' + MONTHS[mn-1] + ' ' + yr + ' → ' + val);
   toast(val==='Paid' ? '✅ Marked Paid' : '↩ Marked Pending');
 }
@@ -1136,32 +1447,73 @@ function renderStatusSummary() {
   Object.values(dm).forEach(function(v){ if(v==='present')p++; else if(v==='absent')a++; });
   var u = DATA.students.length - p - a;
   var totalMonths=0, paidMonths=0;
+  var pendingSyncCount = writeQueue.length;
+  var failedSyncCount = failedWriteOps.length;
   DATA.students.forEach(function(s) {
     (s.due_months||[]).forEach(function(m) {
       totalMonths++;
       if ((payments[payKey(s.id,m.month,m.year)]||m.status)==='Paid') paidMonths++;
     });
   });
-  var html = '<b>'+DATA.students.length+' students</b> · '+DATA.month_name+' '+DATA.year+'<br>';
   var dayLabel = (today === DATA.export_date) ? 'Today' : fmtDate(today);
-  html += '📅 ' + dayLabel + ': <span style="color:var(--green)">'+p+'</span> present';
-  html += ' · <span style="color:var(--red)">'+a+'</span> absent';
-  if (u>0) html += ' · <span style="color:var(--amber)">'+u+'</span> unmarked';
-  html += '<br>💰 <span style="color:var(--green)">'+paidMonths+'</span> months paid';
-  html += ' · <span style="color:var(--amber)">'+(totalMonths-paidMonths)+'</span> pending<br>';
-  html += '<br><span style="color:var(--muted);font-size:11px">Last loaded: ';
-  html += new Date(DATA.exported_at).toLocaleTimeString() + '</span>';
-  document.getElementById('export-summary').innerHTML = html;
+  var summary = document.getElementById('export-summary');
+  if (summary) {
+    summary.textContent = '';
+    appendSummaryLine(summary, [
+      { text: DATA.students.length + ' students', className: 'summary-strong' },
+      { text: ' · ' + DATA.month_name + ' ' + DATA.year }
+    ]);
+    var attendanceLine = [
+      { text: '📅 ' + dayLabel + ': ' },
+      { text: p + ' present', className: 'summary-accent-good' },
+      { text: ' · ' },
+      { text: a + ' absent', className: 'summary-accent-danger' }
+    ];
+    if (u > 0) {
+      attendanceLine.push({ text: ' · ' });
+      attendanceLine.push({ text: u + ' unmarked', className: 'summary-accent-warn' });
+    }
+    appendSummaryLine(summary, attendanceLine);
+    appendSummaryLine(summary, [
+      { text: '💰 ' },
+      { text: paidMonths + ' months paid', className: 'summary-accent-good' },
+      { text: ' · ' },
+      { text: (totalMonths - paidMonths) + ' pending', className: 'summary-accent-warn' }
+    ]);
+    appendSummaryLine(summary, [
+      { text: '☁️ Sync: ' },
+      { text: pendingSyncCount + ' queued', className: pendingSyncCount > 0 ? 'summary-accent-warn' : 'summary-meta' },
+      { text: ' · ' },
+      { text: failedSyncCount + ' failed', className: failedSyncCount > 0 ? 'summary-accent-danger' : 'summary-meta' }
+    ]);
+    appendSummaryLine(summary, [
+      { text: 'Last loaded: ' + new Date(DATA.exported_at).toLocaleTimeString(), className: 'summary-meta' }
+    ]);
+  }
 
   // Show pending queue status and retry button
   var queueArea = document.getElementById('sync-queue-area');
   if (queueArea) {
+    queueArea.textContent = '';
     if (writeQueue.length > 0) {
-      queueArea.innerHTML = '<button data-action="manualFlush" class="btn-export" '
-        + 'style="background:var(--amber);color:#1a1008;margin-top:0;font-size:14px">'
-        + '🔄 Retry Sync (' + writeQueue.length + ' pending)</button>';
+      var retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'btn-export btn-export-warn';
+      retryBtn.setAttribute('data-action', 'manualFlush');
+      retryBtn.textContent = '🔄 Retry Sync (' + writeQueue.length + ' pending)';
+      queueArea.appendChild(retryBtn);
+    } else if (failedWriteOps.length > 0) {
+      var failedBtn = document.createElement('button');
+      failedBtn.type = 'button';
+      failedBtn.className = 'btn-export btn-export-danger-soft';
+      failedBtn.setAttribute('data-action', 'retryFailed');
+      failedBtn.textContent = '⚠ Retry Failed Sync (' + failedWriteOps.length + ')';
+      queueArea.appendChild(failedBtn);
     } else {
-      queueArea.innerHTML = '<div style="font-size:13px;color:var(--green);text-align:center;padding:4px 0">✅ All changes synced</div>';
+      var ok = document.createElement('div');
+      ok.className = 'sync-status-ok';
+      ok.textContent = '✅ All changes synced';
+      queueArea.appendChild(ok);
     }
   }
 }
@@ -1173,10 +1525,59 @@ async function manualFlushQueue() {
   renderStatusSummary();
 }
 
+async function retryFailedQueue() {
+  if (!isOnline) { toast('📡 Still offline — cannot retry failed sync'); return; }
+  var moved = retryFailedWrites();
+  if (moved === 0) { toast('✅ No failed sync items'); return; }
+  toast('🔄 Retrying failed sync…');
+  await flushWriteQueue();
+  renderStatusSummary();
+}
+
 // ═══════════════════════════════════════════════════════════
 // UTILS  (unchanged)
 // ═══════════════════════════════════════════════════════════
 var audioCtx = null;
+function appendSummaryLine(container, parts) {
+  var line = document.createElement('div');
+  line.className = 'summary-line';
+  parts.forEach(function(part) {
+    var span = document.createElement('span');
+    if (part.className) span.className = part.className;
+    span.textContent = part.text;
+    line.appendChild(span);
+  });
+  container.appendChild(line);
+}
+
+function renderScanLog() {
+  var wrap = document.getElementById('scan-log');
+  if (!wrap) return;
+  wrap.textContent = '';
+  var frag = document.createDocumentFragment();
+  scanLog.forEach(function(r) {
+    var row = document.createElement('div');
+    row.className = 'scan-log-item';
+
+    var dot = document.createElement('div');
+    dot.className = 'scan-log-dot';
+    row.appendChild(dot);
+
+    var name = document.createElement('div');
+    name.className = 'scan-log-name';
+    name.textContent = r.name;
+    row.appendChild(name);
+
+    var time = document.createElement('div');
+    time.className = 'scan-log-time';
+    time.textContent = r.time;
+    row.appendChild(time);
+
+    frag.appendChild(row);
+  });
+  wrap.appendChild(frag);
+}
+
 function initAudio() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1244,7 +1645,7 @@ function clearAddStudentForm() {
   document.getElementById('ns-err').style.display = 'none';
   document.getElementById('ns-ok').style.display  = 'none';
   var btn = document.getElementById('ns-btn');
-  if (btn) { btn.disabled = false; btn.innerHTML = '➕ &nbsp; Add Student'; }
+  if (btn) { btn.disabled = false; btn.textContent = '➕ Add Student'; }
 }
 
 async function addStudent() {
@@ -1325,7 +1726,7 @@ async function addStudent() {
 
   var btn = document.getElementById('ns-btn');
   btn.disabled = true;
-  btn.innerHTML = 'Saving…';
+  btn.textContent = 'Saving…';
 
   try {
     var payload = {
@@ -1367,7 +1768,7 @@ async function addStudent() {
       }
       errEl.style.display = 'block';
       btn.disabled = false;
-      btn.innerHTML = '➕ &nbsp; Add Student';
+      btn.textContent = '➕ Add Student';
       return;
     }
 
@@ -1411,10 +1812,10 @@ async function addStudent() {
     clearAddStudentForm();
 
   } catch(e) {
-    errEl.textContent  = 'Unexpected error: ' + e.message;
+    errEl.textContent  = 'Unexpected error. Please try again.';
     errEl.style.display = 'block';
     btn.disabled = false;
-    btn.innerHTML = '➕ &nbsp; Add Student';
+    btn.textContent = '➕ Add Student';
   }
 }
 
@@ -1476,8 +1877,41 @@ document.addEventListener('click', function(e) {
     case 'togYearExp':   togYearExp(Number(el.getAttribute('data-id')), Number(el.getAttribute('data-year'))); break;
     case 'retryCamera':  retryCamera(); break;
     case 'manualFlush':  manualFlushQueue(); break;
+    case 'retryFailed':  retryFailedQueue(); break;
   }
 });
+
+document.addEventListener('keydown', function(e) {
+  var modal = document.getElementById('date-modal');
+  if (e.key === 'Escape' && modal && modal.style.display === 'flex') {
+    closeDateModal();
+    return;
+  }
+  if (modal && modal.style.display === 'flex' && e.key === 'Tab') {
+    trapFocus(e, modal);
+    return;
+  }
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var target = e.target.closest('[data-action], [data-filter], [data-payfilter]');
+  if (!target) return;
+  if (/^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(target.tagName)) return;
+  e.preventDefault();
+  target.click();
+});
+
+function trapFocus(e, modal) {
+  var focusable = modal.querySelectorAll('button:not([disabled]), input:not([disabled])');
+  if (!focusable.length) return;
+  var first = focusable[0];
+  var last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 
 // Static element bindings
 function bindStaticEvents() {
@@ -1497,7 +1931,19 @@ function bindStaticEvents() {
 
   // Tab bar
   document.querySelectorAll('.tab[data-tab]').forEach(function(tab) {
+    tab.id = 'tab-' + tab.getAttribute('data-tab') + '-btn';
     tab.addEventListener('click', function() { switchTab(tab.getAttribute('data-tab')); });
+    tab.addEventListener('keydown', function(e) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab[data-tab]'));
+      var index = tabs.indexOf(tab);
+      var nextIndex = e.key === 'ArrowRight'
+        ? (index + 1) % tabs.length
+        : (index - 1 + tabs.length) % tabs.length;
+      tabs[nextIndex].focus();
+      switchTab(tabs[nextIndex].getAttribute('data-tab'));
+    });
   });
 
   // Attendance filter cards
@@ -1533,6 +1979,9 @@ function bindStaticEvents() {
   if (dateModalSheet) dateModalSheet.addEventListener('click', function(e) { e.stopPropagation(); });
   var dInput = document.getElementById('d-input');
   if (dInput) dInput.addEventListener('input', function() { onDateInput(dInput.value); });
+  if (dInput) dInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !document.getElementById('d-confirm').disabled) confirmDateModal();
+  });
   var dCancel = document.getElementById('d-cancel');
   if (dCancel) dCancel.addEventListener('click', closeDateModal);
   var dConfirm = document.getElementById('d-confirm');
