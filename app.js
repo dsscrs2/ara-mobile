@@ -623,7 +623,8 @@ async function writePay(studentId, month, year, status, amount) {
 // ═══════════════════════════════════════════════════════════
 async function flushWriteQueue() {
   if (!isOnline || writeQueue.length === 0) return;
-  var pending = writeQueue.splice(0);
+  var pending = writeQueue.slice(0);
+  writeQueue = [];
   var originalCount = pending.length;
   var failed = [];
   var exhausted = [];
