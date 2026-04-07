@@ -19,6 +19,7 @@ var SCAN_LOG_LIMIT = 20;
 var QR_MAX_LENGTH = 100;
 var SCAN_COOLDOWN_MS = 1500;
 var DUP_SCAN_WINDOW_MS = 4000;
+var ADVANCE_MONTHS = 3;
 
 // ═══════════════════════════════════════════════════════════
 // STATE  (unchanged from original)
@@ -404,10 +405,12 @@ async function loadFromSupabase() {
       var startMn  = created.getMonth() + 1;
       var startYr  = created.getFullYear();
 
-      // Build full due_months list from join date → today
+      // Build full due_months list from join date → current month + ADVANCE_MONTHS
       var due_months = [];
+      var advMn = mn + ADVANCE_MONTHS, advYr = yr;
+      while (advMn > 12) { advMn -= 12; advYr++; }
       var mi = startMn, yi = startYr;
-      while (yi < yr || (yi === yr && mi <= mn)) {
+      while (yi < advYr || (yi === advYr && mi <= advMn)) {
         var pKey = s.id + '_' + mi + '_' + yi;
         var p    = payLookup[pKey];
         var st   = p ? (p.waived ? 'Waived' : (p.paid ? 'Paid' : 'Pending')) : 'Pending';
@@ -984,7 +987,9 @@ function createPayCell(sid, monthData) {
   var isPaid = state === 'Paid';
   var isWaived = state === 'Waived';
   var cls = isPaid ? 'pc-paid' : isWaived ? 'pc-waived' : 'pc-pending';
+  var isFuture = DATA && ((monthData.year > DATA.year) || (monthData.year === DATA.year && monthData.month > DATA.month));
   var cell = createElem('div', 'pay-cell ' + cls);
+  if (isFuture) cell.classList.add('pc-future');
   if (pendingState !== undefined) cell.classList.add('pc-sync-pending');
   if (failedState !== undefined) cell.classList.add('pc-sync-failed');
   if (isWaived) {
@@ -1038,11 +1043,15 @@ function buildPaymentCard(student, open) {
   var months = student.due_months || [];
   var pendingOps = getPendingPaymentCount(student.id);
   var failedOps = getFailedPaymentCount(student.id);
-  var pendingCount = months.filter(function(m) {
+  var curMn = DATA ? DATA.month : 0, curYr = DATA ? DATA.year : 0;
+  var dueMonths = months.filter(function(m) {
+    return m.year < curYr || (m.year === curYr && m.month <= curMn);
+  });
+  var pendingCount = dueMonths.filter(function(m) {
     return (payments[payKey(student.id, m.month, m.year)] || m.status) === 'Pending';
   }).length;
   var allPaid = pendingCount === 0;
-  var totalAmt = months.filter(function(m) {
+  var totalAmt = dueMonths.filter(function(m) {
     return (payments[payKey(student.id, m.month, m.year)] || m.status) === 'Pending';
   }).reduce(function(sum, m) { return sum + (m.amount || 0); }, 0);
   var badge = createElem('div', 'sc-st ' + (allPaid ? 'sk' : 'sq'), allPaid ? 'All Paid' : pendingCount + ' unpaid');
@@ -1078,7 +1087,7 @@ function buildPaymentCard(student, open) {
     var pendingYearCount = totalCount - paidCount;
 
     if (year === DATA.year) {
-      shell.card.appendChild(createElem('div', 'pay-yr-hint', year + ' — tap pending to mark paid'));
+      shell.card.appendChild(createElem('div', 'pay-yr-hint', year + ' — tap to mark paid · faded = advance'));
       shell.card.appendChild(buildPayGridNode(student.id, yearMonths));
       return;
     }
@@ -1154,7 +1163,9 @@ function renderAtt() {
 function getDueInfo(sid) {
   var s = DATA && DATA.students.filter(function(x){ return x.id === sid; })[0];
   if (!s) return null;
+  var dMn = DATA.month, dYr = DATA.year;
   var pending = (s.due_months || []).filter(function(m) {
+    if (m.year > dYr || (m.year === dYr && m.month > dMn)) return false;
     return (payments[payKey(s.id, m.month, m.year)] || m.status) === 'Pending';
   });
   if (!pending.length) return null;
@@ -1408,6 +1419,7 @@ function renderPay() {
     if (q && s.name.toLowerCase().indexOf(q)<0 && (s.student_id||'').toLowerCase().indexOf(q)<0) return false;
     if (payFilter) {
       var hasPending = (s.due_months||[]).some(function(m) {
+        if (m.year > curYr || (m.year === curYr && m.month > curMn)) return false;
         return (payments[payKey(s.id,m.month,m.year)]||m.status)==='Pending';
       });
       if (payFilter === 'paid')    return !hasPending;
@@ -1450,8 +1462,10 @@ function renderStatusSummary() {
   var totalMonths=0, paidMonths=0;
   var pendingSyncCount = writeQueue.length;
   var failedSyncCount = failedWriteOps.length;
+  var sMn = DATA.month, sYr = DATA.year;
   DATA.students.forEach(function(s) {
     (s.due_months||[]).forEach(function(m) {
+      if (m.year > sYr || (m.year === sYr && m.month > sMn)) return;
       totalMonths++;
       if ((payments[payKey(s.id,m.month,m.year)]||m.status)==='Paid') paidMonths++;
     });
