@@ -31,6 +31,7 @@ var classDays  = [];
 var activeDay  = null;
 var attLoadedDates = {};   // tracks which dates have had attendance fetched from DB
 var expanded   = { att:null, pay:null, payYear:{} };
+var settingsMonthlyFee = 0;
 var scanLog    = [];
 var scanStream = null, scanRaf = null;
 var lastScanned = null, lastScannedAt = 0;
@@ -368,6 +369,10 @@ async function loadFromSupabase() {
     var mn    = now.getMonth() + 1;
     var yr    = now.getFullYear();
 
+    // 0. Settings
+    var setRes = await sb.from('settings').select('value').eq('key', 'monthly_fee').single();
+    if (setRes.data) settingsMonthlyFee = parseFloat(setRes.data.value) || 0;
+
     // 1. Active students
     var sRes = await sb.from('students')
       .select('id, student_id, name, fee_amount, created_at')
@@ -469,6 +474,9 @@ async function loadFromSupabase() {
 
     // Restore session (classDays, activeDay) if same date
     tryRestore();
+
+    var feeEl = document.getElementById('ns-fee');
+    if (feeEl) feeEl.value = settingsMonthlyFee;
 
     showApp();
 
@@ -1651,7 +1659,7 @@ function toast(msg, type) {
 function clearAddStudentForm() {
   ['ns-name','ns-sid','ns-phone','ns-email','ns-fee','ns-joined'].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el) { if (id === 'ns-fee') el.value = '1000'; else el.value = ''; }
+    if (el) { if (id === 'ns-fee') el.value = settingsMonthlyFee; else el.value = ''; }
   });
   var clsEl = document.getElementById('ns-class');
   if (clsEl) clsEl.value = 'Academy';
@@ -1725,13 +1733,7 @@ async function addStudent() {
     document.getElementById('ns-email').focus();
     return;
   }
-  var fee = parseFloat(document.getElementById('ns-fee').value);
-  if (isNaN(fee) || fee <= 0 || fee > 100000) {
-    errEl.textContent   = 'Monthly fee must be between 1 and 100,000.';
-    errEl.style.display = 'block';
-    document.getElementById('ns-fee').focus();
-    return;
-  }
+  var fee = settingsMonthlyFee;
   if (joined && joined > todayISO()) {
     errEl.textContent   = 'Joined date cannot be in the future.';
     errEl.style.display = 'block';
