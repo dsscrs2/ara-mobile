@@ -1779,7 +1779,30 @@ async function addStudent() {
     if (error) {
       console.error('addStudent error:', error.code, error.message);
       if (error.code === '23505') {
-        errEl.textContent = 'Student ID "' + sid + '" already exists. Use a different ID.';
+        var row = null;
+        try {
+          var lookupResp = await fetchWithTimeout(
+            SUPABASE_URL + '/rest/v1/students?student_id=eq.' + encodeURIComponent(sid) +
+            '&select=name,active,leave_from',
+            { method: 'GET', headers: sbHeaders(token) }
+          );
+          if (lookupResp.ok) {
+            var existing = await lookupResp.json();
+            row = existing && existing[0];
+          }
+        } catch(_e) { /* fall through to generic message */ }
+
+        if (row && row.active === false) {
+          var lf = row.leave_from ? (' since ' + String(row.leave_from).slice(0, 10)) : '';
+          errEl.textContent =
+            '⚠️ ' + row.name + ' (ID ' + sid + ') is inactive' + lf +
+            '. Ask the admin to reactivate this student on DesktopApp before marking attendance.';
+        } else if (row && row.active === true) {
+          errEl.textContent =
+            '✓ ' + row.name + ' (ID ' + sid + ') is already active. Pull-to-refresh on the Attendance tab to see them.';
+        } else {
+          errEl.textContent = 'Student ID "' + sid + '" already exists in the system. Ask the admin to check on DesktopApp.';
+        }
       } else {
         errEl.textContent = 'Could not add student. Please check your connection and try again.';
       }
