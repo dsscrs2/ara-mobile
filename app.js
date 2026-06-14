@@ -8,10 +8,6 @@ var SUPABASE_KEY = '';
 var AUTH_TOKEN   = '';   // set at login, used for all writes
 var sb = null;
 
-// WhatsApp bot config (loaded from Supabase settings table at boot)
-var WA_BOT_URL = '';   // e.g. https://your-bot-host.com
-var WA_BOT_KEY = '';   // Bearer token (may be empty if bot has no auth)
-
 var MONTHS = ['January','February','March','April','May','June',
               'July','August','September','October','November','December'];
 var MABBR  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -373,17 +369,9 @@ async function loadFromSupabase() {
     var mn    = now.getMonth() + 1;
     var yr    = now.getFullYear();
 
-    // 0. Settings (monthly_fee + WhatsApp bot config)
-    var setRes = await sb.from('settings')
-      .select('key, value')
-      .in('key', ['monthly_fee', 'whatsapp_bot_url', 'whatsapp_bot_api_key']);
-    if (setRes.data) {
-      setRes.data.forEach(function(row) {
-        if (row.key === 'monthly_fee')          settingsMonthlyFee = parseFloat(row.value) || 0;
-        if (row.key === 'whatsapp_bot_url')     WA_BOT_URL = (row.value || '').trim().replace(/\/$/, '');
-        if (row.key === 'whatsapp_bot_api_key') WA_BOT_KEY = (row.value || '').trim();
-      });
-    }
+    // 0. Settings
+    var setRes = await sb.from('settings').select('value').eq('key', 'monthly_fee').single();
+    if (setRes.data) settingsMonthlyFee = parseFloat(setRes.data.value) || 0;
 
     // 1. Active students
     var sRes = await sb.from('students')
@@ -1666,89 +1654,6 @@ function toast(msg, type) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// WHATSAPP GREETING  (mirrors build_student_greeting_message in whatsapp.py)
-// ═══════════════════════════════════════════════════════════
-
-/**
- * Build the welcome message sent after a new student is registered.
- * Matches build_student_greeting_message() in utils/whatsapp.py exactly.
- *
- * @param {Object} student  Object with name, student_id, class, grade fields
- * @returns {string}
- */
-function buildGreetingMessage(student) {
-  var name       = (String(student.name       || 'Student')).trim() || 'Student';
-  var studentId  = (String(student.student_id || '-')).trim()       || '-';
-  var className  = (String(student.class      || '-')).trim()       || '-';
-  var grade      = (String(student.grade      || '-')).trim()       || '-';
-
-  return (
-    'Dear ' + name + ',\n\n' +
-    'Welcome to D S Senanayeke College - Air Rifle Academy.\n\n' +
-    'Your student registration has been successfully completed.\n\n' +
-    'Student ID: ' + studentId + '\n' +
-    'Class: ' + className + '\n' +
-    'Grade: ' + grade + '\n\n' +
-    'Please refer for Safety Rules:\n' +
-    'https://donzweb.vercel.app/safety-rules.html\n\n' +
-    'Thank you.'
-  );
-}
-
-/**
- * Convert a Sri Lankan local phone number to international digits (no +).
- * e.g. "0771234567" → "94771234567"
- * Mirrors _clean_lk_phone() in utils/whatsapp.py.
- *
- * @param {string} phone
- * @returns {string}  "94XXXXXXXXX" ready to pass to the bot
- */
-function toE164SL(phone) {
-  var digits = (phone || '').replace(/\D/g, '');
-  if (digits.startsWith('0094')) digits = digits.slice(4);
-  else if (digits.startsWith('94')) digits = digits.slice(2);
-  else if (digits.startsWith('0'))  digits = digits.slice(1);
-  return '94' + digits;
-}
-
-/**
- * Send a WhatsApp greeting via the bot. Fire-and-forget — never throws,
- * never blocks the caller. Calls onDone(errorString|null) when finished.
- *
- * @param {string}   phone   Raw phone as entered by the user (e.g. "0771234567")
- * @param {string}   message Text to send
- * @param {Function} onDone  Called with null on success, or an error string
- */
-async function sendGreetingViaBot(phone, message, onDone) {
-  if (!WA_BOT_URL) { onDone('WhatsApp bot URL is not configured in settings.'); return; }
-  var intlPhone = toE164SL(phone);
-  if (intlPhone.length < 10) { onDone('Invalid phone number.'); return; }
-
-  try {
-    var headers = { 'Content-Type': 'application/json' };
-    if (WA_BOT_KEY) headers['Authorization'] = 'Bearer ' + WA_BOT_KEY;
-
-    var resp = await fetchWithTimeout(
-      WA_BOT_URL + '/api/send',
-      { method: 'POST', headers: headers, body: JSON.stringify({ phone: intlPhone, text: message }) },
-      15000
-    );
-
-    var body = {};
-    try { body = await resp.json(); } catch(_e) {}
-
-    if (resp.ok && body.ok) {
-      onDone(null);
-    } else {
-      var errMsg = body.error || body.message || ('Bot returned HTTP ' + resp.status);
-      onDone(String(errMsg));
-    }
-  } catch(e) {
-    onDone(e && e.message ? e.message : String(e));
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
 // ADD STUDENT
 // ═══════════════════════════════════════════════════════════
 function clearAddStudentForm() {
@@ -1945,26 +1850,6 @@ async function addStudent() {
     okEl.style.display = 'block';
     toast('✅ ' + name + ' added!');
     clearAddStudentForm();
-
-    // Send WhatsApp greeting — fire-and-forget, uses the newly returned DB row
-    // so student_id, class, grade are exactly what was saved.
-    if (phone && WA_BOT_URL) {
-      var greetingStudent = {
-        name:       (data && data[0]) ? data[0].name       : name,
-        student_id: (data && data[0]) ? data[0].student_id : sid,
-        class:      (data && data[0]) ? data[0].class      : cls,
-        grade:      (data && data[0]) ? data[0].grade      : grade
-      };
-      var greetingMsg = buildGreetingMessage(greetingStudent);
-      sendGreetingViaBot(phone, greetingMsg, function(err) {
-        if (err) {
-          console.warn('Greeting WA send failed:', err);
-          toast('⚠️ Added, but WhatsApp greeting failed: ' + err, 'due');
-        } else {
-          toast('📲 WhatsApp greeting sent to ' + phone);
-        }
-      });
-    }
 
   } catch(e) {
     errEl.textContent  = 'Unexpected error. Please try again.';

@@ -6,10 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
-<!-- connect-src includes https: to allow the WhatsApp bot VM (URL loaded dynamically
-     from Supabase settings at runtime — host is not known at page-build time).
-     Supabase origins are listed explicitly. All other resource types stay locked. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://yssmwhsjxrhoodrzbead.supabase.co wss://yssmwhsjxrhoodrzbead.supabase.co https:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://yssmwhsjxrhoodrzbead.supabase.co wss://yssmwhsjxrhoodrzbead.supabase.co;">
 <title>ARA Mobile</title>
 <!-- jsQR: fallback QR decoder for browsers without BarcodeDetector (iPhone Safari) -->
 <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" integrity="sha384-9Q0jWoineiIq95JeIyBsNV90KKLfDsbkj29k/YFxf76a2JwkHDYkMuSbNGN6XJfV" crossorigin="anonymous"></script>
