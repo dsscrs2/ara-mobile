@@ -8,10 +8,12 @@
 <meta name="theme-color" content="#0f172a">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://yssmwhsjxrhoodrzbead.supabase.co wss://yssmwhsjxrhoodrzbead.supabase.co;">
 <title>ARA Mobile</title>
+<!-- Both scripts load the file the npm package ships, not a ".min.js": jsDelivr minifies those on the fly,
+     and a re-minify changes the bytes and breaks the integrity hash (that is how jsQR broke). -->
 <!-- jsQR: fallback QR decoder for browsers without BarcodeDetector (iPhone Safari) -->
-<script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" integrity="sha384-9Q0jWoineiIq95JeIyBsNV90KKLfDsbkj29k/YFxf76a2JwkHDYkMuSbNGN6XJfV" crossorigin="anonymous"></script>
-<!-- Supabase JS client v2 (pinned to 2.101.1) -->
-<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.101.1/dist/umd/supabase.min.js" integrity="sha384-0VpB0wAYDdhWCEv3+IjT0Z9Kgpvszkf70RFX3ro7l4QR5nywxsMaOpmvZKsfRF8I" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" crossorigin="anonymous"></script>
+<!-- Supabase JS client v2 (pinned to 2.101.1; supabase.js is already minified) -->
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.101.1/dist/umd/supabase.js" integrity="sha384-twhroNxtNM6hcaxZmvhUjI6o++BofLKrqnQUwkHK9NiXpq/WqaBWISkN0uvB6Bc7" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>

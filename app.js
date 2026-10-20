@@ -1273,7 +1273,9 @@ function resumeScanning() {
       showScanErr('QR library not loaded. Check your internet connection and reload the page.', false);
       // Try reloading jsQR dynamically
       var sc = document.createElement('script');
-      sc.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+      sc.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+      sc.integrity = 'sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx'; // same file and hash as index.html
+      sc.crossOrigin = 'anonymous';
       sc.onload = function() { resumeScanning(); };
       sc.onerror = function() {
         showScanErr('QR library unavailable. Check your internet and use the Attendance tab manually.', false);
@@ -1863,10 +1865,12 @@ async function addStudent() {
 // BOOT  (waits for DOMContentLoaded so deferred scripts are loaded)
 // ═══════════════════════════════════════════════════════════
 function boot() {
-  // NOTE: The Supabase anon key below is intentionally public — it is safe to embed
+  // NOTE: The Supabase publishable key below is intentionally public — it is safe to embed
   // as long as Row Level Security (RLS) is enabled on all tables in Supabase.
+  // It replaced the legacy anon key, which stops working at the end of 2026. It only
+  // ever goes in the `apikey` header; Bearer carries the signed-in user's token.
   var url = 'https://yssmwhsjxrhoodrzbead.supabase.co';
-  var key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlzc213aHNqeHJob29kcnpiZWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NzMzNTgsImV4cCI6MjA4OTA0OTM1OH0.IO4F6Ug5NlHfY0hdQPgoim45OgXiGDVWeEq0MGzA3Ms';
+  var key = 'sb_publishable_Ke_-iqV6N-m6Jcp-lNZ2GQ_VTZ-XlVl';
   SUPABASE_URL = url;
   SUPABASE_KEY = key;
   if (!initSupabaseClient(url, key)) return;
