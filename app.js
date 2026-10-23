@@ -30,7 +30,7 @@ var payments   = {};   // { "id_month_year": "Paid"|"Pending"|"Waived" }
 var classDays  = [];
 var activeDay  = null;
 var attLoadedDates = {};   // tracks which dates have had attendance fetched from DB
-var expanded   = { att:null, pay:null, payYear:{} };
+var expanded   = { att:null, pay:null, payYear:{}, payFocus:null };
 var settingsMonthlyFee = 0;
 var scanLog    = [];
 var scanStream = null, scanRaf = null;
@@ -361,6 +361,20 @@ function resetSessionTimer() {
 // ═══════════════════════════════════════════════════════════
 // SUPABASE — LOAD DATA
 // ═══════════════════════════════════════════════════════════
+// Supabase caps each response (API "Max rows", 1000 by default), so large tables are read in pages.
+// buildQuery must return a fresh, consistently ordered query selected with { count: 'exact' }.
+var SB_PAGE_SIZE = 1000;
+async function fetchAllRows(buildQuery) {
+  var rows = [];
+  while (true) {
+    var res = await buildQuery().range(rows.length, rows.length + SB_PAGE_SIZE - 1);
+    if (res.error) return { data: null, error: res.error };
+    var page = res.data || [];
+    rows = rows.concat(page);
+    if (!page.length || res.count === null || rows.length >= res.count) return { data: rows, error: null };
+  }
+}
+
 async function loadFromSupabase() {
   try {
     showLoading('Loading students…');
@@ -393,10 +407,18 @@ async function loadFromSupabase() {
 
     showLoading('Loading payments…');
 
-    // 3. Payments (filtered to recent years for performance)
-    var pRes = await sb.from('payments')
-      .select('student_id, month, year, amount, paid, waived')
-      .gte('year', yr - 2);
+    // 3. Payments — full history from the earliest active student's start year,
+    //    so every month a card shows has its payment data loaded
+    var historyFromYr = students.reduce(function(min, s) {
+      var y = new Date(s.created_at).getFullYear();
+      return y < min ? y : min;
+    }, yr);
+    var pRes = await fetchAllRows(function() {
+      return sb.from('payments')
+        .select('student_id, month, year, amount, paid, waived', { count: 'exact' })
+        .gte('year', historyFromYr)
+        .order('student_id').order('year').order('month');
+    });
     if (pRes.error) { console.error('payments load error:', pRes.error.message); throw new Error('Failed to load payments'); }
     var payLookup = {};
     (pRes.data || []).forEach(function(p) {
@@ -405,12 +427,12 @@ async function loadFromSupabase() {
 
     // 4. Build DATA object (same shape as the old JSON export)
     var studentList = students.map(function(s) {
-      // Determine payment start month (student's join month)
+      // Payment history starts the month the student record was created (created_at), not joined_date
       var created  = new Date(s.created_at);
       var startMn  = created.getMonth() + 1;
       var startYr  = created.getFullYear();
 
-      // Build full due_months list from join date → current month + ADVANCE_MONTHS
+      // Build full due_months list from created_at → current month + ADVANCE_MONTHS
       var due_months = [];
       var advMn = mn + ADVANCE_MONTHS, advYr = yr;
       while (advMn > 12) { advMn -= 12; advYr++; }
@@ -1047,6 +1069,18 @@ function createPayYearRow(studentId, year, countText, statusNode, isOpen) {
   return row;
 }
 
+// Default-open year: first year from the current year onward that still has
+// an unpaid month. null when everything from the current year on is paid.
+function getPayFocusYear(student) {
+  var curYr = DATA ? DATA.year : 0;
+  var unpaidYears = (student.due_months || []).filter(function(m) {
+    if (m.year < curYr) return false;
+    var state = payments[payKey(student.id, m.month, m.year)] || m.status;
+    return state !== 'Paid' && state !== 'Waived';
+  }).map(function(m) { return m.year; });
+  return unpaidYears.length ? Math.min.apply(null, unpaidYears) : null;
+}
+
 function buildPaymentCard(student, open) {
   var months = student.due_months || [];
   var pendingOps = getPendingPaymentCount(student.id);
@@ -1084,26 +1118,41 @@ function buildPaymentCard(student, open) {
     yearMap[m.year].push(m);
   });
 
+  // Focus year is locked when the card opens so marking a month paid doesn't reshuffle it
+  var focusYear = (expanded.payFocus && expanded.payFocus.sid === student.id)
+    ? expanded.payFocus.year
+    : getPayFocusYear(student);
+
   Object.keys(yearMap).map(Number).sort().forEach(function(year) {
     var yearMonths = yearMap[year];
-    var paidCount = yearMonths.filter(function(m) {
+    var paidCount = 0, dueUnpaid = 0, advUnpaid = 0;
+    yearMonths.forEach(function(m) {
       var state = payments[payKey(student.id, m.month, m.year)] || m.status;
-      return state === 'Paid' || state === 'Waived';
-    }).length;
+      if (state === 'Paid' || state === 'Waived') paidCount++;
+      else if (m.year < curYr || (m.year === curYr && m.month <= curMn)) dueUnpaid++;
+      else advUnpaid++;
+    });
     var totalCount = yearMonths.length;
     var yearAllPaid = paidCount === totalCount;
-    var pendingYearCount = totalCount - paidCount;
 
-    if (year === DATA.year) {
+    if (year === DATA.year && year === focusYear) {
       shell.card.appendChild(createElem('div', 'pay-yr-hint', year + ' — tap to mark paid · faded = advance'));
       shell.card.appendChild(buildPayGridNode(student.id, yearMonths));
       return;
     }
 
     var countText = totalCount === 12 ? 'all 12 months' : totalCount + ' month' + (totalCount > 1 ? 's' : '');
-    var statusNode = createElem('span', yearAllPaid ? 'summary-accent-good' : 'summary-accent-warn', yearAllPaid ? 'All paid ✓' : paidCount + ' paid, ' + pendingYearCount + ' unpaid');
+    var statusNode;
+    if (yearAllPaid) {
+      statusNode = createElem('span', 'summary-accent-good', 'All paid ✓');
+    } else if (dueUnpaid > 0) {
+      statusNode = createElem('span', 'summary-accent-warn', paidCount + ' paid, ' + dueUnpaid + ' unpaid');
+    } else {
+      statusNode = createElem('span', 'summary-meta', (paidCount > 0 ? paidCount + ' paid, ' : '') + advUnpaid + ' upcoming');
+    }
     var yearKey = student.id + '_' + year;
-    var openYear = !!expanded.payYear[yearKey];
+    var storedOpen = expanded.payYear[yearKey];
+    var openYear = storedOpen === undefined ? year === focusYear : storedOpen;
     shell.card.appendChild(createPayYearRow(student.id, year, countText, statusNode, openYear));
     if (openYear) shell.card.appendChild(buildPayGridNode(student.id, yearMonths));
   });
@@ -1204,17 +1253,18 @@ function setAtt(id, val) {
 
 function togExp(t, id) {
   expanded[t] = expanded[t]===id ? null : id;
-  if (t==='pay' && expanded.pay!==id) {
-    Object.keys(expanded.payYear).forEach(function(k) {
-      if (k.indexOf(id+'_')===0) delete expanded.payYear[k];
-    });
+  if (t==='pay') {
+    // Only one pay card is open at a time — reset year toggles and lock the focus year on open
+    expanded.payYear = {};
+    var stu = expanded.pay === id && DATA && DATA.students.filter(function(x){ return x.id === id; })[0];
+    expanded.payFocus = stu ? { sid: id, year: getPayFocusYear(stu) } : null;
   }
   t==='att' ? renderAtt() : renderPay();
 }
 
-function togYearExp(sid, yr) {
+function togYearExp(sid, yr, wasOpen) {
   var key = sid + '_' + yr;
-  expanded.payYear[key] = !expanded.payYear[key];
+  expanded.payYear[key] = !wasOpen;
   renderPay();
 }
 
@@ -1918,7 +1968,7 @@ document.addEventListener('click', function(e) {
     case 'togExp':       togExp(el.getAttribute('data-type'), Number(el.getAttribute('data-id'))); break;
     case 'setAtt':       setAtt(Number(el.getAttribute('data-id')), el.getAttribute('data-status') || null); break;
     case 'setPay':       setPay(Number(el.getAttribute('data-id')), Number(el.getAttribute('data-month')), Number(el.getAttribute('data-year')), el.getAttribute('data-status')); break;
-    case 'togYearExp':   togYearExp(Number(el.getAttribute('data-id')), Number(el.getAttribute('data-year'))); break;
+    case 'togYearExp':   togYearExp(Number(el.getAttribute('data-id')), Number(el.getAttribute('data-year')), el.getAttribute('aria-expanded') === 'true'); break;
     case 'retryCamera':  retryCamera(); break;
     case 'manualFlush':  manualFlushQueue(); break;
     case 'retryFailed':  retryFailedQueue(); break;
