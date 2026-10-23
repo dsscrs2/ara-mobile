@@ -7,13 +7,16 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://yssmwhsjxrhoodrzbead.supabase.co wss://yssmwhsjxrhoodrzbead.supabase.co;">
-<title>ARA Mobile</title>
+<title>ARS Mobile</title>
 <!-- Both scripts load the file the npm package ships, not a ".min.js": jsDelivr minifies those on the fly,
      and a re-minify changes the bytes and breaks the integrity hash (that is how jsQR broke). -->
 <!-- jsQR: fallback QR decoder for browsers without BarcodeDetector (iPhone Safari) -->
 <script defer src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" crossorigin="anonymous"></script>
 <!-- Supabase JS client v2 (pinned to 2.101.1; supabase.js is already minified) -->
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.101.1/dist/umd/supabase.js" integrity="sha384-twhroNxtNM6hcaxZmvhUjI6o++BofLKrqnQUwkHK9NiXpq/WqaBWISkN0uvB6Bc7" crossorigin="anonymous"></script>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="ARS Mobile">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -22,9 +25,9 @@
      CONNECT SCREEN  (replaces old import screen)
      ═══════════════════════════════════════════════════════ -->
 <div id="connect-screen">
-  <div class="logo-ring">🎯</div>
-  <h1>Air Rifle Academy</h1>
-  <p class="sub">D S Senanayeke College · Mobile Companion</p>
+  <img class="crest-logo" src="crest.png" alt="D. S. Senanayake College Air Rifle Society crest" width="114" height="128">
+  <h1>Air Rifle Society</h1>
+  <p class="sub">D. S. Senanayake College · Mobile Companion</p>
   <div class="import-card">
     <h3>Welcome back</h3>
     <p class="intro-copy">Enter your credentials to continue</p>
@@ -45,8 +48,8 @@
      LOADING SCREEN
      ═══════════════════════════════════════════════════════ -->
 <div id="loading-screen">
-  <div class="logo-ring">🎯</div>
-  <h1>Air Rifle Academy</h1>
+  <img class="crest-logo" src="crest.png" alt="" width="114" height="128">
+  <h1>Air Rifle Society</h1>
   <p class="sub" id="loading-msg">Connecting…</p>
   <div class="loading-dots"><span></span><span></span><span></span></div>
 </div>
@@ -57,7 +60,7 @@
 <div id="app">
   <div class="topbar">
     <div class="topbar-row">
-      <div><h2>🎯 Air Rifle Academy</h2><div class="meta" id="topbar-meta"></div></div>
+      <div class="brand"><img class="brand-crest" src="crest.png" alt="" width="34" height="38"><div><h2>Air Rifle Society</h2><div class="meta" id="topbar-meta"></div></div></div>
       <div class="topbar-actions">
         <span id="sync-indicator" aria-live="polite">⟳ Syncing…</span>
         <span id="topbar-status" class="live" aria-live="polite"><span class="dot"></span>Live</span>

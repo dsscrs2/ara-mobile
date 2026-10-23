@@ -16,7 +16,9 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
   background:linear-gradient(160deg,#0f172a 0%,#1a1040 100%);
 }
 #loading-screen { display:none; }
-.logo-ring { width:90px; height:90px; border-radius:50%; background:linear-gradient(135deg,#3b82f6,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:20px; box-shadow:0 0 40px rgba(59,130,246,.35); }
+.crest-logo { height:128px; width:auto; margin-bottom:18px; filter:drop-shadow(0 6px 24px rgba(0,0,0,.45)); }
+.brand { display:flex; align-items:center; gap:10px; min-width:0; }
+.brand-crest { height:38px; width:auto; flex-shrink:0; }
 #connect-screen h1, #loading-screen h1 { font-size:22px; font-weight:700; text-align:center; margin-bottom:6px; }
 .sub { color:var(--muted); font-size:14px; text-align:center; margin-bottom:36px; }
 .import-card { width:100%; max-width:380px; background:var(--surf); border:1px solid var(--border); border-radius:var(--r); padding:28px 24px; }
